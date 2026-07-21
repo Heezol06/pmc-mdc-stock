@@ -1252,6 +1252,40 @@ const STORAGE_KEY = 'pmc_stock_register_v2';
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbxr2V3_lEzNyragNn-Ycr2cfzanW6SwhurJVLLBglaLloPM8djtTU13TlLje4FD_ejJfw/exec';
 const GAS_KEY = 'ed1336dec5ab0e0b16a04ef52c45bf2ba3f143cb5ee0eb38';
 
+// Supabase = source of truth: the app reads from and writes to it on every
+// change. The Google Sheet (above) is kept only as a human-readable mirror.
+// Fill these from Supabase Dashboard > Project Settings > API:
+//   SUPABASE_URL      = "Project URL"        (https://xxxx.supabase.co)
+//   SUPABASE_ANON_KEY = "anon public" key    (safe client-side: your RLS
+//                       already limits anon to select+update on app_state)
+const SUPABASE_URL = 'https://kacxrmmvusoindisfuao.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_UVbXENhINIzIgSRoxtFtGA_MBJctYvo';
+const SB_READY = () => !SUPABASE_URL.includes('REPLACE-WITH') && !SUPABASE_ANON_KEY.includes('REPLACE-WITH');
+const SB_HEADERS = () => ({ apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` });
+
+// Push the full app state into the single app_state row (id = 1).
+function saveToSupabase(payload){
+  if(!SB_READY()) return;
+  fetch(`${SUPABASE_URL}/rest/v1/app_state?id=eq.1`, {
+    method: 'PATCH',
+    headers: { ...SB_HEADERS(), 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify({ data: payload, updated_at: new Date().toISOString() }),
+  }).catch(()=>{}); // offline: localStorage already holds this state
+}
+
+// Apply a state blob (from Supabase or the Sheet) onto the live app + cache.
+function applyServerState(saved){
+  state.medicines = saved.medicines;
+  state.entries = Array.isArray(saved.entries) ? saved.entries : [];
+  state.recentMedIds = Array.isArray(saved.recentMedIds) ? saved.recentMedIds : [];
+  state.lastEntryId = saved.lastEntryId || null;
+  state.lang = saved.lang === 'bn' ? 'bn' : state.lang;
+  state.dark = typeof saved.dark === 'boolean' ? saved.dark : state.dark;
+  state.activityLog = Array.isArray(saved.activityLog) ? saved.activityLog : [];
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); }catch(e){}
+  render();
+}
+
 function esc(v){
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -1310,6 +1344,11 @@ function persist(){
     lastEntryId: state.lastEntryId, lang: state.lang, dark: state.dark, activityLog: state.activityLog,
   };
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }catch(e){}
+
+  // 1) Supabase = source of truth
+  saveToSupabase(payload);
+
+  // 2) Google Sheet = human-readable mirror (register view)
   if(GAS_URL.includes('REPLACE-WITH')) return; // Apps Script URL not filled in yet
   const register = buildRegisterRows(state.entries);
   fetch(GAS_URL, {
@@ -1321,20 +1360,31 @@ function persist(){
   }).catch(()=>{}); // offline/unreachable: localStorage write above already happened
 }
 function syncFromServer(){
+  // Prefer Supabase (source of truth); fall back to the Sheet if it's
+  // not configured or unreachable.
+  if(SB_READY()){
+    fetch(`${SUPABASE_URL}/rest/v1/app_state?id=eq.1&select=data`, { headers: SB_HEADERS() })
+      .then(r => r.ok ? r.json() : null)
+      .then(rows => {
+        const saved = rows && rows[0] && rows[0].data;
+        if(saved && Array.isArray(saved.medicines) && saved.medicines.length){
+          applyServerState(saved);
+        } else {
+          persist(); // Supabase row empty: push this device's current/seed state up
+        }
+      })
+      .catch(() => syncFromSheet()); // Supabase unreachable: try the Sheet
+    return;
+  }
+  syncFromSheet();
+}
+function syncFromSheet(){
   if(GAS_URL.includes('REPLACE-WITH')) return; // Apps Script URL not filled in yet
   fetch(`${GAS_URL}?key=${encodeURIComponent(GAS_KEY)}`)
     .then(r => r.ok ? r.json() : null)
     .then(saved => {
       if(saved && Array.isArray(saved.medicines) && saved.medicines.length){
-        state.medicines = saved.medicines;
-        state.entries = Array.isArray(saved.entries) ? saved.entries : [];
-        state.recentMedIds = Array.isArray(saved.recentMedIds) ? saved.recentMedIds : [];
-        state.lastEntryId = saved.lastEntryId || null;
-        state.lang = saved.lang === 'bn' ? 'bn' : state.lang;
-        state.dark = typeof saved.dark === 'boolean' ? saved.dark : state.dark;
-        state.activityLog = Array.isArray(saved.activityLog) ? saved.activityLog : [];
-        try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); }catch(e){}
-        render();
+        applyServerState(saved);
       } else if(saved && Array.isArray(saved.medicines) && !saved.medicines.length){
         persist(); // sheet has no data yet: push this device's current/seed state as the shared copy
       }

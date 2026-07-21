@@ -23,7 +23,6 @@
 </head>
 <body>
 <div id="app"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 "use strict";
 
@@ -1247,15 +1246,11 @@ const ICON_CHEVRON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none
 const LOGO_SVG = `<svg width="30" height="30" viewBox="0 0 32 32" fill="none" style="flex-shrink:0"><rect width="32" height="32" rx="9" fill="#134E36"/><path d="M16 9v14M9 16h14" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round"/></svg>`;
 
 const STORAGE_KEY = 'pmc_stock_register_v2';
-// Shared-storage backend: Supabase (Postgres + built-in browser API).
-// SUPABASE_KEY is the "publishable/anon" key — safe to ship in client code,
-// it only allows what the RLS policies on the app_state table permit.
-const SUPABASE_URL = 'https://kacxrmmvusoindisfuao.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_UVbXENhINIzIgSRoxtFtGA_MBJctYvo';
-let sbClient = null;
-try{
-  if(typeof supabase !== 'undefined') sbClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-}catch(e){ sbClient = null; } // CDN script blocked/offline: app still runs fully from localStorage
+// Shared-storage backend: a Google Apps Script "Web app" bound to a Google
+// Sheet (see GOOGLE_SHEETS_SETUP.md). GAS_URL/GAS_KEY come from that setup —
+// GAS_KEY is a shared secret checked by the script, not a Google credential.
+const GAS_URL = 'https://REPLACE-WITH-YOUR-APPS-SCRIPT-WEB-APP-URL/exec';
+const GAS_KEY = 'ed1336dec5ab0e0b16a04ef52c45bf2ba3f143cb5ee0eb38';
 
 function esc(v){
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1315,16 +1310,22 @@ function persist(){
     lastEntryId: state.lastEntryId, lang: state.lang, dark: state.dark, activityLog: state.activityLog,
   };
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }catch(e){}
-  if(!sbClient) return; // no network/CDN at all: localStorage write above already happened
-  sbClient.from('app_state').update({ data: payload }).eq('id', 1)
-    .then(()=>{}, ()=>{});
+  if(GAS_URL.includes('REPLACE-WITH')) return; // Apps Script URL not filled in yet
+  const register = buildRegisterRows(state.entries);
+  fetch(GAS_URL, {
+    method: 'POST',
+    // text/plain avoids a CORS preflight (which Apps Script Web Apps don't handle);
+    // the script parses e.postData.contents as JSON itself.
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ key: GAS_KEY, ...payload, register }),
+  }).catch(()=>{}); // offline/unreachable: localStorage write above already happened
 }
 function syncFromServer(){
-  if(!sbClient) return; // no network/CDN at all: keep whatever loadState() already put on screen
-  sbClient.from('app_state').select('data').eq('id', 1).single()
-    .then(({ data, error }) => {
-      const saved = !error && data ? data.data : null;
-      if(saved && Array.isArray(saved.medicines)){
+  if(GAS_URL.includes('REPLACE-WITH')) return; // Apps Script URL not filled in yet
+  fetch(`${GAS_URL}?key=${encodeURIComponent(GAS_KEY)}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(saved => {
+      if(saved && Array.isArray(saved.medicines) && saved.medicines.length){
         state.medicines = saved.medicines;
         state.entries = Array.isArray(saved.entries) ? saved.entries : [];
         state.recentMedIds = Array.isArray(saved.recentMedIds) ? saved.recentMedIds : [];
@@ -1334,10 +1335,11 @@ function syncFromServer(){
         state.activityLog = Array.isArray(saved.activityLog) ? saved.activityLog : [];
         try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); }catch(e){}
         render();
-      } else if(!error && (!data || !data.data)){
-        persist(); // server row is empty: push this device's current/seed state as the shared copy
+      } else if(saved && Array.isArray(saved.medicines) && !saved.medicines.length){
+        persist(); // sheet has no data yet: push this device's current/seed state as the shared copy
       }
-    }, ()=>{}); // offline: keep whatever loadState() already put on screen
+    })
+    .catch(()=>{}); // offline: keep whatever loadState() already put on screen
 }
 
 const app = document.getElementById('app');
@@ -2024,7 +2026,10 @@ function render(){
 // Builds the "Sheet1" register grid: one row per medicine, an Opening Balance column,
 // then one In/Out/Present-Stock column block per date that had any activity, ending
 // with a Month/Closing Balance column — matching the user's existing khata-register format.
-function buildRegisterSheet(entries){
+// Plain 2D array of the "side-by-side" pivot register (Medicine Name, Opening
+// Balance, then In/Out/Present-Stock triplets per date). Shared by the xlsx
+// export and the Google Sheets sync, so both always show the identical layout.
+function buildRegisterRows(entries){
   const medicines = state.medicines.slice().sort((a,b)=>a.name.localeCompare(b.name));
 
   const dates = Array.from(new Set(entries.map(e=>e.date))).sort();
@@ -2066,6 +2071,11 @@ function buildRegisterSheet(entries){
     rows.push(row);
   });
 
+  return { rows, dates };
+}
+
+function buildRegisterSheet(entries){
+  const { rows, dates } = buildRegisterRows(entries);
   const ws = XLSX.utils.aoa_to_sheet(rows);
 
   const merges = [

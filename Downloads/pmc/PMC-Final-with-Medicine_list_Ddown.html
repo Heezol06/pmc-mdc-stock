@@ -1,0 +1,2453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PMC Medicine Stock Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23134E36'/%3E%3Cpath d='M16 9v14M9 16h14' stroke='%23FFFFFF' stroke-width='3.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
+<style>
+  html,body{margin:0;padding:0;background:#F7F3E8;}
+  *{box-sizing:border-box;font-family:'Hind Siliguri',system-ui,sans-serif;}
+  button,input{font-family:'Hind Siliguri',system-ui,sans-serif;-webkit-tap-highlight-color:transparent;}
+  button{appearance:none;outline:none;}
+  input{outline:none;}
+  input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{margin:0;}
+  @keyframes pmcPulse{0%,100%{opacity:.45}50%{opacity:1}}
+  ::-webkit-scrollbar{display:none;}
+  button:focus-visible,input:focus-visible{outline:2px solid #3FA76E;outline-offset:2px;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+"use strict";
+
+const BN_DIGITS = {'0':'০','1':'১','2':'২','3':'৩','4':'৪','5':'৫','6':'৬','7':'৭','8':'৮','9':'৯'};
+
+const LIGHT = {
+  pageBg:'#F7F3E8', headerBg:'#134E36', headerText:'#FFFFFF', headerMuted:'rgba(255,255,255,0.72)',
+  surface:'#FFFFFF', surfaceAlt:'#F0EBDC', text:'#1E2622', textMuted:'#525C55', border:'#E3DDC9',
+  primary:'#134E36', selectedText:'#FFFFFF',
+  chipBg:'#FDF6E3', chipBorder:'#EAD9A0', recentBg:'#F0EBDC',
+  positiveBg:'#E4F3E7', positiveText:'#186B34',
+  negativeBg:'#FBE7E4', negativeText:'#A22E22',
+  inputBg:'#FFFFFF', inputBorder:'#D8D2BC', overlay:'rgba(20,25,22,0.5)', danger:'#A22E22',
+};
+const DARK = {
+  pageBg:'#0E1712', headerBg:'#0B2A1D', headerText:'#F2EFE4', headerMuted:'rgba(242,239,228,0.65)',
+  surface:'#152019', surfaceAlt:'#1B281F', text:'#EDEBE1', textMuted:'#93A199', border:'#233129',
+  primary:'#3FA76E', selectedText:'#0B2A1D',
+  chipBg:'#1E2A1F', chipBorder:'#33472F', recentBg:'#1B281F',
+  positiveBg:'#183A26', positiveText:'#5FCB8C',
+  negativeBg:'#3A1F1B', negativeText:'#F0897B',
+  inputBg:'#1B241D', inputBorder:'#2D3B31', overlay:'rgba(0,0,0,0.65)', danger:'#F0897B',
+};
+const LOW_STOCK_THRESHOLD = 20;
+
+const TRANSLATIONS = {
+  en: {
+    title:'PMC', subtitle:'Medicine Stock Register', tabEntry:'Entry', tabDaybook:'Day book', tabLog:'Log',
+    searchPlaceholder:'Search medicine… (e.g. napa 500)',
+    recent:'Recently used', allMeds:'All medicines (A–Z)',
+    results:(n)=>`Results (${n})`,
+    showRemaining:(n)=>`Show remaining (${n})`, showLess:'Show less',
+    noResults:(q)=>`Nothing found for "${q}"`, addNew:'Add as new medicine',
+    currentStock:'Current stock', in:'In', out:'Out', quantity:'Quantity', date:'Date',
+    futureDateError:'Date cannot be in the future',
+    negativeBlockError:(n)=>`Cannot save — stock would go negative (${n})`,
+    save:'Save entry',
+    newStockPreview:(n)=>`New stock will be ${n}`,
+    addTitle:'Add new medicine', nameLabel:'Medicine name', openingStock:'Opening stock', addSave:'Add & continue',
+    dupError:'This medicine already exists',
+    dayFilter:'Filter by date', clear:'Clear', entries:'entries', undo:'Undo',
+    emptyDaybook:'No entries yet — go to the Entry tab to record your first In/Out.',
+    goEntry:'Go to Entry tab', export:'Export',
+    medCount:'medicines', savedToast:(name,type,qty,ps)=>`${name} — ${type} ${qty} ✓ New PS: ${ps}`,
+    undoneToast:'Entry undone', addedToast:(name)=>`${name} added`, usage:(n)=>`×${n}`,
+    exportDone:'Excel file downloaded', exportError:'Export failed — check your internet connection',
+    editMedicine:'Edit medicine', editEntry:'Edit entry', saveChanges:'Save changes',
+    entryCountShort:(n)=>`${n} entries`, viewEntries:'tap to view',
+    editLocked:'Editing window closed (24h)', editedToast:'Changes saved',
+    activityLogHeading:'Activity log', emptyLog:'No activity yet.',
+    logAdded:(name,stock)=>`Added medicine "${name}" (opening stock ${stock})`,
+    logEntry:(type,name,qty,ps)=>`${type} — ${name} ${qty} (New stock: ${ps})`,
+    logUndo:(type,name,qty)=>`Undid ${type} — ${name} ${qty}`,
+    logMedEditSame:(name,oldStock,newStock)=>`Edited "${name}": stock ${oldStock} → ${newStock}`,
+    logMedEditRenamed:(oldName,newName,oldStock,newStock)=>`Edited medicine "${oldName}" → "${newName}": stock ${oldStock} → ${newStock}`,
+    logEntryEdit:(name,oldType,oldQty,newType,newQty)=>`Edited entry — ${name}: ${oldType} ${oldQty} → ${newType} ${newQty}`,
+    deleteEntry:'Delete', confirmDeleteEntry:'Delete this entry? This cannot be undone.',
+    deletedToast:'Entry deleted',
+    logDeleteEntry:(type,name,qty)=>`Deleted entry — ${type} ${name} ${qty}`,
+    deleteMedicine:'Delete medicine',
+    confirmDeleteMedicine:(name)=>`Delete "${name}"? Its day-book history will also be removed. This cannot be undone.`,
+    medicineDeletedToast:'Medicine deleted',
+    logDeleteMedicine:(name)=>`Deleted medicine "${name}"`,
+    confirmDeleteLog:'Delete this log entry? This cannot be undone.',
+  },
+  bn: {
+    title:'পিএমসি', subtitle:'মেডিসিন স্টক রেজিস্টার', tabEntry:'এন্ট্রি', tabDaybook:'ডে-বুক', tabLog:'লগ',
+    searchPlaceholder:'ওষুধ খুঁজুন… (যেমন napa 500)',
+    recent:'সম্প্রতি ব্যবহৃত', allMeds:'সব ওষুধ (এ–জেড)',
+    results:(n)=>`ফলাফল (${n})`,
+    showRemaining:(n)=>`বাকি দেখুন (${n})`, showLess:'কম দেখুন',
+    noResults:(q)=>`"${q}" এর জন্য কিছু পাওয়া যায়নি`, addNew:'নতুন ওষুধ হিসেবে যোগ করুন',
+    currentStock:'বর্তমান মজুদ', in:'ইন', out:'আউট', quantity:'পরিমাণ', date:'তারিখ',
+    futureDateError:'ভবিষ্যতের তারিখ দেওয়া যাবে না',
+    negativeBlockError:(n)=>`সংরক্ষণ করা যাবে না — মজুদ ঋণাত্মক হবে (${n})`,
+    save:'সংরক্ষণ করুন',
+    newStockPreview:(n)=>`নতুন মজুদ হবে ${n}`,
+    addTitle:'নতুন ওষুধ যোগ করুন', nameLabel:'ওষুধের নাম', openingStock:'শুরুর মজুদ', addSave:'যোগ করে এগিয়ে যান',
+    dupError:'এই ওষুধ ইতিমধ্যে আছে',
+    dayFilter:'তারিখ অনুযায়ী ফিল্টার', clear:'মুছুন', entries:'এন্ট্রি', undo:'পূর্বাবস্থায়',
+    emptyDaybook:'এখনও কোনো এন্ট্রি নেই — এন্ট্রি ট্যাবে যান।',
+    goEntry:'এন্ট্রি ট্যাবে যান', export:'এক্সপোর্ট',
+    medCount:'ওষুধ', savedToast:(name,type,qty,ps)=>`${name} — ${type} ${qty} ✓ নতুন মজুদ: ${ps}`,
+    undoneToast:'এন্ট্রি বাতিল হয়েছে', addedToast:(name)=>`${name} যোগ হয়েছে`, usage:(n)=>`×${n}`,
+    exportDone:'এক্সেল ফাইল ডাউনলোড হয়েছে', exportError:'এক্সপোর্ট ব্যর্থ হয়েছে — ইন্টারনেট সংযোগ পরীক্ষা করুন',
+    editMedicine:'ওষুধ সম্পাদনা', editEntry:'এন্ট্রি সম্পাদনা', saveChanges:'পরিবর্তন সংরক্ষণ করুন',
+    entryCountShort:(n)=>`${n}টি এন্ট্রি`, viewEntries:'দেখতে ট্যাপ করুন',
+    editLocked:'সম্পাদনার সময় শেষ (২৪ ঘণ্টা)', editedToast:'পরিবর্তন সংরক্ষিত হয়েছে',
+    activityLogHeading:'কার্যক্রম লগ', emptyLog:'এখনও কোনো কার্যক্রম নেই।',
+    logAdded:(name,stock)=>`ওষুধ "${name}" যোগ হয়েছে (শুরুর মজুদ ${stock})`,
+    logEntry:(type,name,qty,ps)=>`${type} — ${name} ${qty} (নতুন মজুদ: ${ps})`,
+    logUndo:(type,name,qty)=>`বাতিল করা হয়েছে ${type} — ${name} ${qty}`,
+    logMedEditSame:(name,oldStock,newStock)=>`সম্পাদিত "${name}": মজুদ ${oldStock} → ${newStock}`,
+    logMedEditRenamed:(oldName,newName,oldStock,newStock)=>`ওষুধ সম্পাদিত "${oldName}" → "${newName}": মজুদ ${oldStock} → ${newStock}`,
+    logEntryEdit:(name,oldType,oldQty,newType,newQty)=>`এন্ট্রি সম্পাদিত — ${name}: ${oldType} ${oldQty} → ${newType} ${newQty}`,
+    deleteEntry:'মুছুন', confirmDeleteEntry:'এই এন্ট্রি মুছবেন? এটি পূর্বাবস্থায় ফেরানো যাবে না।',
+    deletedToast:'এন্ট্রি মুছে ফেলা হয়েছে',
+    logDeleteEntry:(type,name,qty)=>`এন্ট্রি মুছে ফেলা হয়েছে — ${type} ${name} ${qty}`,
+    deleteMedicine:'ওষুধ মুছুন',
+    confirmDeleteMedicine:(name)=>`"${name}" মুছবেন? এর ডে-বুক ইতিহাসও মুছে যাবে। এটি পূর্বাবস্থায় ফেরানো যাবে না।`,
+    medicineDeletedToast:'ওষুধ মুছে ফেলা হয়েছে',
+    logDeleteMedicine:(name)=>`ওষুধ "${name}" মুছে ফেলা হয়েছে`,
+    confirmDeleteLog:'এই লগ এন্ট্রি মুছবেন? এটি পূর্বাবস্থায় ফেরানো যাবে না।',
+  },
+};
+
+const MEDICINES_SEED = [
+{id:'m1',name:'Avolac Syp.',stock:1,usage:1},
+{id:'m2',name:'Abetis Plus 20mg tab.',stock:0,usage:0},
+{id:'m3',name:'Abetis/Olmesan 10mg tab.',stock:20,usage:0},
+{id:'m4',name:'A-calm-50mg',stock:0,usage:0},
+{id:'m5',name:'Ace 100ml Syp.',stock:100,usage:1},
+{id:'m6',name:'Acne gel plus',stock:0,usage:0},
+{id:'m7',name:'Afrin N/D 0.025%',stock:0,usage:0},
+{id:'m8',name:'Afun Cream 10gm',stock:0,usage:4},
+{id:'m9',name:'Alben DS Suspension',stock:0,usage:0},
+{id:'m10',name:'Alben Sus 10ml',stock:8,usage:0},
+{id:'m11',name:'Alcet 5mg Tab.',stock:30,usage:1},
+{id:'m12',name:'Algin Syp.',stock:2,usage:0},
+{id:'m13',name:'Algin-50mg',stock:30,usage:0},
+{id:'m14',name:'Alkanon-500',stock:0,usage:0},
+{id:'m15',name:'Allygest-5mg tab.',stock:210,usage:0},
+{id:'m16',name:'Ambrox 100ml Syp',stock:8,usage:5},
+{id:'m17',name:'A-Migel Oral Gel 15gm',stock:10,usage:1},
+{id:'m18',name:'Ample Angel-D3 40000',stock:0,usage:0},
+{id:'m19',name:'Anclog-75mg',stock:20,usage:1},
+{id:'m20',name:'Anelog-75mg',stock:0,usage:0},
+{id:'m21',name:'Angilock 50mg Tab.',stock:320,usage:2},
+{id:'m22',name:'Angilock-50',stock:0,usage:0},
+{id:'m23',name:'Anril SR 2.6 mg/GTN 2.6',stock:160,usage:2},
+{id:'m24',name:'Antazol N/D',stock:7,usage:1},
+{id:'m25',name:'Apsol cream',stock:0,usage:0},
+{id:'m26',name:'Aristo-D3 200000 IU Inj.',stock:-2,usage:1},
+{id:'m27',name:'Arolae Syrup',stock:0,usage:0},
+{id:'m28',name:'Aromycin lotion',stock:1,usage:0},
+{id:'m29',name:'Arlin 400mg Tab.',stock:-20,usage:1},
+{id:'m30',name:'Arth-A TS',stock:322,usage:3},
+{id:'m31',name:'Atova- 10',stock:0,usage:0},
+{id:'m32',name:'Atova- 20',stock:0,usage:0},
+{id:'m33',name:'ATV 10mg tab.',stock:0,usage:0},
+{id:'m34',name:'ATV 20mg tab.',stock:0,usage:0},
+{id:'m35',name:'Azolin .025% N.D.',stock:19,usage:0},
+{id:'m36',name:'Beklo 5mg',stock:78,usage:1},
+{id:'m37',name:'Beklo 10mg',stock:146,usage:14},
+{id:'m38',name:'Benzit 10mg tab.',stock:175,usage:6},
+{id:'m39',name:'Betabis 2.5 mg',stock:0,usage:2},
+{id:'m40',name:'Betabis 2.5/Bislol',stock:30,usage:3},
+{id:'m41',name:'Betabis 5mg',stock:60,usage:2},
+{id:'m42',name:'Betabis 5mg/Bislol',stock:0,usage:0},
+{id:'m43',name:'Betabis plus (2.5/6.25)',stock:5,usage:2},
+{id:'m44',name:'Betabis plus (5/6.25)',stock:40,usage:0},
+{id:'m45',name:'Betabis plus 5mg',stock:0,usage:0},
+{id:'m46',name:'Betaloc-50 Tab',stock:84,usage:1},
+{id:'m47',name:'Betalok-25mg',stock:44,usage:3},
+{id:'m48',name:'Beuflox-D Eye/Ear Drop',stock:0,usage:0},
+{id:'m49',name:'Bexitrol F 50/500',stock:150,usage:3},
+{id:'m50',name:'Bexitrol F 50/250',stock:150,usage:2},
+{id:'m51',name:'Bilfast-20mg Tab.',stock:0,usage:5},
+{id:'m52',name:'Bizoran 5/20mg',stock:70,usage:8},
+{id:'m53',name:'Bizoran 5/40 mg Tab.',stock:15,usage:11},
+{id:'m54',name:'Boxol 100ml Syp.',stock:28,usage:8},
+{id:'m55',name:'Calbo-D',stock:0,usage:3},
+{id:'m56',name:'Camlodin Plus',stock:28,usage:1},
+{id:'m57',name:'Cap Formatide Unicap',stock:30,usage:0},
+{id:'m58',name:'Ginoba 60mg Cap.',stock:30,usage:0},
+{id:'m59',name:'Ceevit 250mg Tab.',stock:220,usage:5},
+{id:'m60',name:'Cef-3 Forts/Ceftid DS Syp',stock:0,usage:0},
+{id:'m61',name:'CEF-3 Sus. for Powder 30ml',stock:7,usage:4},
+{id:'m62',name:'Ceftid 200mg Cap.',stock:0,usage:0},
+{id:'m63',name:'Ceftid 50ml Syrup',stock:26,usage:3},
+{id:'m64',name:'Ceftid DS Syrup',stock:0,usage:0},
+{id:'m65',name:'Celofen-100',stock:0,usage:0},
+{id:'m66',name:'Cenaron plus',stock:0,usage:0},
+{id:'m67',name:'Centilen TS (750+600)',stock:0,usage:0},
+{id:'m68',name:'Centoxin- 0.25mg',stock:50,usage:1},
+{id:'m69',name:'Centoxin- 0.25mg',stock:0,usage:0},
+{id:'m70',name:'Cerevus-5mg',stock:-50,usage:1},
+{id:'m71',name:'Cildip 10mg',stock:40,usage:3},
+{id:'m72',name:'Cinaron 10mg Tab.',stock:95,usage:5},
+{id:'m73',name:'Cinaron Plus Tab.',stock:140,usage:2},
+{id:'m74',name:'Clamox 625mg',stock:225,usage:1},
+{id:'m75',name:'Clamox/Moxaclav 500 mg+125 mg',stock:0,usage:0},
+{id:'m76',name:'Clavocef 500mg Tab.',stock:0,usage:0},
+{id:'m77',name:'Clavucef-500mg Tab.',stock:20,usage:1},
+{id:'m78',name:'Cleanface Gel',stock:-1,usage:1},
+{id:'m79',name:'Clinface Gel 15gm',stock:0,usage:0},
+{id:'m80',name:'Clopid 75mg Tab.',stock:70,usage:6},
+{id:'m81',name:'Colicon 50ml Syp',stock:4,usage:0},
+{id:'m82',name:'Colicon Syp.',stock:0,usage:0},
+{id:'m83',name:'Comet XR 500',stock:20,usage:1},
+{id:'m84',name:'Comet-500',stock:130,usage:5},
+{id:'m85',name:'Compred XR-60',stock:40,usage:2},
+{id:'m86',name:'Comprid 80mg tab.',stock:500,usage:4},
+{id:'m87',name:'Contin-100',stock:0,usage:0},
+{id:'m88',name:'Cora-DX',stock:40,usage:15},
+{id:'m89',name:'Corange-10mg',stock:0,usage:0},
+{id:'m90',name:'Cortan 10mg Tab.',stock:18,usage:0},
+{id:'m91',name:'Cortan 5mg Tab.',stock:0,usage:0},
+{id:'m92',name:'Covarum 4/50mg',stock:0,usage:0},
+{id:'m93',name:'Dainol-3',stock:0,usage:0},
+{id:'m94',name:'D-Cough Syp.',stock:17,usage:4},
+{id:'m95',name:'Debnol-40000',stock:-3,usage:1},
+{id:'m96',name:'Defrol 40000 Tab.',stock:0,usage:5},
+{id:'m97',name:'Delcyst 500mg',stock:0,usage:4},
+{id:'m98',name:'Deli3 plus 10/20',stock:0,usage:0},
+{id:'m99',name:'Denzol-200mg',stock:20,usage:0},
+{id:'m100',name:'Dexlan 30mg Cap.',stock:0,usage:3},
+{id:'m101',name:'Dexpofen Syp.',stock:0,usage:0},
+{id:'m102',name:'Dexpofency',stock:0,usage:0},
+{id:'m103',name:'Diclofen Gel',stock:3,usage:3},
+{id:'m104',name:'Didry-3',stock:0,usage:0},
+{id:'m105',name:'DO-10mg',stock:0,usage:0},
+{id:'m106',name:'Dulox 30mg Tab',stock:35,usage:2},
+{id:'m107',name:'Domin 10mg Tab.',stock:210,usage:3},
+{id:'m108',name:'Doralux',stock:0,usage:0},
+{id:'m109',name:'Doxiflo 200mg Tab.',stock:476,usage:8},
+{id:'m110',name:'Doxiflo 200mg Tab.',stock:0,usage:0},
+{id:'m111',name:'Doxorin-200',stock:100,usage:1},
+{id:'m112',name:'Dulox-30mg',stock:0,usage:1},
+{id:'m113',name:'Ezylife 10mg Tab.',stock:80,usage:2},
+{id:'m114',name:'Ecosprin 75',stock:240,usage:5},
+{id:'m115',name:'Ecosprin Plus',stock:100,usage:1},
+{id:'m116',name:'Ecup-400',stock:0,usage:0},
+{id:'m117',name:'Ediloss 20/50 Tab.',stock:0,usage:0},
+{id:'m118',name:'Ediloss 40/50 Tab.',stock:0,usage:1},
+{id:'m119',name:'Eggsel D Tab.',stock:0,usage:0},
+{id:'m120',name:'Elepta-5/25',stock:20,usage:0},
+{id:'m121',name:'Elindex-B gel',stock:0,usage:0},
+{id:'m122',name:'Elodep-5mg',stock:-30,usage:1},
+{id:'m123',name:'Emolent Cream',stock:10,usage:1},
+{id:'m124',name:'Enlino 5/10 Tab.',stock:-5,usage:1},
+{id:'m125',name:'Entacid plus syp.',stock:17,usage:5},
+{id:'m126',name:'Esoral 20mg Tab.',stock:-112,usage:1},
+{id:'m127',name:'Esotid-20 Tab',stock:756,usage:3},
+{id:'m128',name:'Esotid-40 Tab',stock:0,usage:0},
+{id:'m129',name:'Etorix 60mg Tab.',stock:10,usage:0},
+{id:'m130',name:'Facid BT Cream',stock:6,usage:3},
+{id:'m131',name:'Facid HC Cream',stock:4,usage:2},
+{id:'m132',name:'Feglo FZ',stock:0,usage:3},
+{id:'m133',name:'Feoza-45mg',stock:0,usage:2},
+{id:'m134',name:'Fexo 120mg Tab.',stock:435,usage:13},
+{id:'m135',name:'Fillwel Sillver',stock:0,usage:0},
+{id:'m136',name:'Filwel Gold',stock:0,usage:0},
+{id:'m137',name:'Filwel Silver',stock:270,usage:0},
+{id:'m138',name:'Finix 10mg Tab',stock:100,usage:1},
+{id:'m139',name:'Finix 20mg Tab',stock:540,usage:31},
+{id:'m140',name:'Fix-a 200mg ./Cef-3 200mg',stock:140,usage:2},
+{id:'m141',name:'Fixal 50ml Syp.',stock:32,usage:2},
+{id:'m142',name:'Fixal 50ml Syp.',stock:0,usage:0},
+{id:'m143',name:'Flucloxin Syp.',stock:2,usage:2},
+{id:'m144',name:'Flugal 50mg Cap',stock:50,usage:0},
+{id:'m145',name:'Flugal-150mg',stock:0,usage:2},
+{id:'m146',name:'Flutica N Spray',stock:0,usage:0},
+{id:'m147',name:'Folikidz Syp.',stock:0,usage:0},
+{id:'m148',name:'Folison 5mg Tab.',stock:500,usage:1},
+{id:'m149',name:'Folive 400mg Cap.',stock:90,usage:0},
+{id:'m150',name:'Folive-400',stock:0,usage:0},
+{id:'m151',name:'Frenxit',stock:120,usage:0},
+{id:'m152',name:'Frenxit Tab.',stock:0,usage:0},
+{id:'m153',name:'Gastid syp.',stock:1,usage:2},
+{id:'m154',name:'Gaviflox Syp.',stock:0,usage:0},
+{id:'m155',name:'Gavisol Syp',stock:1,usage:3},
+{id:'m156',name:'Gavisus DX Syp 200ml',stock:19,usage:2},
+{id:'m157',name:'Gelora/A-migel',stock:0,usage:0},
+{id:'m158',name:'Gestrenol 5mg Tab.',stock:0,usage:0},
+{id:'m159',name:'Glix 80 mg Tab.',stock:0,usage:0},
+{id:'m160',name:'Gynomix',stock:6,usage:1},
+{id:'m161',name:'Halobet Ointment',stock:4,usage:1},
+{id:'m162',name:'Hexinor-2mg',stock:40,usage:0},
+{id:'m163',name:'Histacin Syp.',stock:0,usage:0},
+{id:'m164',name:'Histal Syp.',stock:27,usage:6},
+{id:'m165',name:'Indever-10mg',stock:173,usage:1},
+{id:'m166',name:'Indever-20mg',stock:40,usage:1},
+{id:'m167',name:'Indeven-40mg',stock:240,usage:0},
+{id:'m168',name:'Insulet 30/70',stock:0,usage:0},
+{id:'m169',name:'Irofix FZ/Hemofix FZ',stock:0,usage:0},
+{id:'m170',name:'Irofix FZ/Hemofix FZ',stock:0,usage:0},
+{id:'m171',name:'Itchcare cream',stock:0,usage:0},
+{id:'m172',name:'Itopride 50mg',stock:40,usage:2},
+{id:'m173',name:'Itra Nova 65mg',stock:110,usage:10},
+{id:'m174',name:'Itra Syp',stock:0,usage:1},
+{id:'m175',name:'Kerasol 12% Cream',stock:3,usage:0},
+{id:'m176',name:'Kerasol 6% Cream 30gm',stock:0,usage:0},
+{id:'m177',name:'Lasix 40mg Tab.',stock:0,usage:0},
+{id:'m178',name:'Levostar 100ml/salmol',stock:0,usage:0},
+{id:'m179',name:'Levostar 50ml/salmol',stock:47,usage:0},
+{id:'m180',name:'Levostar Syp 100ml',stock:0,usage:0},
+{id:'m181',name:'Levostar Syp 50ml',stock:0,usage:0},
+{id:'m182',name:'Licor Syp',stock:-1,usage:1},
+{id:'m183',name:'Limaryl 1mg',stock:0,usage:1},
+{id:'m184',name:'Linatab E (5/10)',stock:30,usage:0},
+{id:'m185',name:'Linatab E 5/10',stock:0,usage:0},
+{id:'m186',name:'Linax-5',stock:0,usage:0},
+{id:'m187',name:'Linita-5/lino-5',stock:270,usage:5},
+{id:'m188',name:'Lindur-200',stock:0,usage:0},
+{id:'m189',name:'Linita-5/lino-5',stock:0,usage:0},
+{id:'m190',name:'Liptor-10mg Tab.',stock:190,usage:2},
+{id:'m191',name:'Liptor-20/ATV',stock:140,usage:3},
+{id:'m192',name:'Lonazep 2mg Tab.',stock:30,usage:1},
+{id:'m193',name:'Lolitop Cream',stock:4,usage:6},
+{id:'m194',name:'Lorix Plus Lotion 60ml',stock:20,usage:1},
+{id:'m195',name:'Lulitop Cr. 10gm',stock:0,usage:0},
+{id:'m196',name:'Lulitop-1% Cream',stock:4,usage:4},
+{id:'m197',name:'Lumber Curest Belt (Medium Size)',stock:0,usage:0},
+{id:'m198',name:'Lumna-10mg',stock:0,usage:0},
+{id:'m199',name:'Malfa 30 mg Tab',stock:0,usage:0},
+{id:'m200',name:'Mave 135mg Tab.',stock:0,usage:0},
+{id:'m201',name:'Maxpro 20mg Tab.',stock:0,usage:0},
+{id:'m202',name:'Maxpro 40mg Tab.',stock:0,usage:0},
+{id:'m203',name:'Maxrin D/Uromax D',stock:230,usage:2},
+{id:'m204',name:'Menoral-5/Feminor',stock:216,usage:0},
+{id:'m205',name:'Merolin 2.5mg Tab.',stock:0,usage:0},
+{id:'m206',name:'Merolin 5mg Tab.',stock:0,usage:0},
+{id:'m207',name:'Metacard 35mg',stock:2,usage:1},
+{id:'m208',name:'Methotrax 10mg Tab.',stock:148,usage:1},
+{id:'m209',name:'Micosina Oral Gel',stock:1,usage:4},
+{id:'m210',name:'Mig 5mg Tab.',stock:20,usage:0},
+{id:'m211',name:'Mig-5mg',stock:0,usage:0},
+{id:'m212',name:'Miraba-2.5mg /Merolin',stock:30,usage:0},
+{id:'m213',name:'Miraba-5',stock:0,usage:2},
+{id:'m214',name:'Miraba-5mg',stock:0,usage:2},
+{id:'m215',name:'Miraba-5mg /Merolin',stock:160,usage:2},
+{id:'m216',name:'Mirolin 2.5mg',stock:-16,usage:1},
+{id:'m217',name:'Mointene 10mg Tab.',stock:490,usage:3},
+{id:'m218',name:'Montene-5/40',stock:30,usage:0},
+{id:'m219',name:'Montene-5mg',stock:0,usage:0},
+{id:'m220',name:'Moodnor-10mg',stock:180,usage:1},
+{id:'m221',name:'Moxaclav 625mg Tab.',stock:0,usage:0},
+{id:'m222',name:'Mupiron Ointment',stock:4,usage:2},
+{id:'m223',name:'Nabumet 500mg Tab.',stock:20,usage:2},
+{id:'m224',name:'Nafgal cream',stock:2,usage:0},
+{id:'m225',name:'Napa-500',stock:120,usage:9},
+{id:'m226',name:'Napa 250mg Supp.',stock:15,usage:1},
+{id:'m227',name:'Napro-A 2:50 Talb',stock:0,usage:0},
+{id:'m228',name:'Napro-A 250  Tab.',stock:922,usage:5},
+{id:'m229',name:'Napro-A 250 Tab.',stock:0,usage:0},
+{id:'m230',name:'Napro-A 250 Talb',stock:14,usage:1},
+{id:'m231',name:'Napro-A 500',stock:272,usage:4},
+{id:'m232',name:'Naprosyn',stock:16,usage:0},
+{id:'m233',name:'Nasopap',stock:0,usage:0},
+{id:'m234',name:'Neoro-B Tab.',stock:0,usage:0},
+{id:'m235',name:'Nervafix 600mg Tab.',stock:10,usage:4},
+{id:'m236',name:'Neuro-B',stock:120,usage:10},
+{id:'m237',name:'Nexcital 5mg Tab.',stock:20,usage:1},
+{id:'m238',name:'Nidocard Retard',stock:72,usage:0},
+{id:'m239',name:'Nidocard Retard (2.6)',stock:12,usage:2},
+{id:'m240',name:'Nidocard Retard 2.5mg',stock:0,usage:0},
+{id:'m241',name:'Nidocard Spray 2.5mg',stock:0,usage:0},
+{id:'m242',name:'Nitrin SR (2.6)',stock:10,usage:1},
+{id:'m243',name:'Nitrofix Spray',stock:4,usage:0},
+{id:'m244',name:'Nobestil-500',stock:60,usage:0},
+{id:'m245',name:'Nometor-500mg',stock:0,usage:0},
+{id:'m246',name:'Nomi 2.5mg',stock:121,usage:1},
+{id:'m247',name:'Nomi 2.5mg Tab.',stock:0,usage:0},
+{id:'m248',name:'Normens 5mg Tab.',stock:10,usage:0},
+{id:'m249',name:'Nortin 25mg Cap.',stock:20,usage:0},
+{id:'m250',name:'Nortin 25mg Tab.',stock:0,usage:0},
+{id:'m251',name:'Nurowel/TPC',stock:1260,usage:5},
+{id:'m252',name:'Olmedip 5/20',stock:20,usage:1},
+{id:'m253',name:'Olmesun 20 Tab.',stock:10,usage:0},
+{id:'m254',name:'Opexa-20',stock:0,usage:0},
+{id:'m255',name:'Orbapin  5/20 mg Tab',stock:260,usage:3},
+{id:'m256',name:'Orbapin 5/20 mg Tab',stock:0,usage:0},
+{id:'m257',name:'Orbapin-5/40',stock:0,usage:0},
+{id:'m258',name:'ORS ACMES',stock:185,usage:3},
+{id:'m259',name:'Ostocal-D',stock:50,usage:8},
+{id:'m260',name:'Oxigel Wash 5%',stock:0,usage:0},
+{id:'m261',name:'Paloxi .5mg',stock:0,usage:0},
+{id:'m262',name:'Paloxi 0.5mg',stock:15,usage:3},
+{id:'m263',name:'Pase 0.5 m g',stock:0,usage:0},
+{id:'m264',name:'Pase 0.5 mg',stock:748,usage:4},
+{id:'m265',name:'Pelentus-2mg',stock:0,usage:0},
+{id:'m266',name:'Peloxi 0.5mg Tab',stock:5,usage:4},
+{id:'m267',name:'Peloxi 5mg Tab.',stock:0,usage:0},
+{id:'m268',name:'Peritop-50',stock:0,usage:0},
+{id:'m269',name:'PG-25mg',stock:90,usage:5},
+{id:'m270',name:'Povin Mouthwash',stock:14,usage:0},
+{id:'m271',name:'Pregaba 25mg Tab.',stock:238,usage:3},
+{id:'m272',name:'Pregaba 50mg Cap.',stock:120,usage:2},
+{id:'m273',name:'Primacap-500mg',stock:50,usage:0},
+{id:'m274',name:'Primivera 500mg Tab.',stock:20,usage:1},
+{id:'m275',name:'Probenid ER (100)',stock:0,usage:0},
+{id:'m276',name:'Profen Syp.',stock:-1,usage:1},
+{id:'m277',name:'Ramoril-1.25mg Tab.',stock:45,usage:2},
+{id:'m278',name:'Rectocare cream',stock:0,usage:0},
+{id:'m279',name:'Reduced Syrup',stock:0,usage:0},
+{id:'m280',name:'Reduciel syp.',stock:0,usage:0},
+{id:'m281',name:'Reduciel-20mg',stock:0,usage:0},
+{id:'m282',name:'Reganx-40mg',stock:0,usage:0},
+{id:'m283',name:'Reglo FZ',stock:0,usage:0},
+{id:'m284',name:'Relaxo 25mg',stock:36,usage:1},
+{id:'m285',name:'Relentus-20mg',stock:0,usage:0},
+{id:'m286',name:'Relentus 2mg Tab.',stock:210,usage:9},
+{id:'m287',name:'Remus ointment',stock:5,usage:0},
+{id:'m288',name:'Renocel plus',stock:30,usage:0},
+{id:'m289',name:'Renova 60ml Syp.',stock:16,usage:7},
+{id:'m290',name:'Renova Max',stock:230,usage:8},
+{id:'m291',name:'Renova XR Tab.',stock:237,usage:4},
+{id:'m292',name:'Rito-60/Setorib-60mg',stock:30,usage:1},
+{id:'m293',name:'Rivanox-10mg',stock:0,usage:0},
+{id:'m294',name:'Rivarox-10mg Tab.',stock:10,usage:0},
+{id:'m295',name:'Rivotril 1mg Tab.',stock:40,usage:1},
+{id:'m296',name:'Rivotril 0.5mg Tab',stock:5,usage:0},
+{id:'m297',name:'Ropitor 10mg Tab.',stock:32,usage:1},
+{id:'m298',name:'Rostab 0.5 mg tab',stock:0,usage:0},
+{id:'m299',name:'Roster 5mg Tab.',stock:0,usage:0},
+{id:'m300',name:'Rotahelar Mechine',stock:0,usage:0},
+{id:'m301',name:'Rupa 10mg',stock:0,usage:0},
+{id:'m302',name:'Sabitan 50mg',stock:0,usage:0},
+{id:'m303',name:'Sabitar 50mg',stock:60,usage:2},
+{id:'m304',name:'Sabitar 50mg Tab.',stock:0,usage:0},
+{id:'m305',name:'Salazine-500mg',stock:330,usage:3},
+{id:'m306',name:'Salazine-500mg',stock:0,usage:0},
+{id:'m307',name:'Seacoral D',stock:40,usage:4},
+{id:'m308',name:'Seacoral Dx',stock:900,usage:13},
+{id:'m309',name:'Selomet 50mg Tab.',stock:30,usage:2},
+{id:'m310',name:'Selomet-500mg',stock:0,usage:0},
+{id:'m311',name:'Sergel-40mg',stock:60,usage:6},
+{id:'m312',name:'Serogel-20mg Cap.',stock:-200,usage:2},
+{id:'m313',name:'Shelcal-D',stock:20,usage:2},
+{id:'m314',name:'Sitadus-50',stock:36,usage:0},
+{id:'m315',name:'Sitagil 50mg Tab.',stock:20,usage:1},
+{id:'m316',name:'Sizopin 25mg',stock:0,usage:0},
+{id:'m317',name:'Solas 30ml Syp',stock:16,usage:2},
+{id:'m318',name:'Solupred-8mg',stock:20,usage:0},
+{id:'m319',name:'SufaZine-500',stock:0,usage:0},
+{id:'m320',name:'Super Itra 65mg Tab.',stock:-10,usage:1},
+{id:'m321',name:'Super Ultra 65mg',stock:0,usage:0},
+{id:'m322',name:'Super Itra 65mg Tab.',stock:-20,usage:1},
+{id:'m323',name:'Supra-B',stock:10,usage:1},
+{id:'m324',name:'Supravit G Cap.',stock:615,usage:2},
+{id:'m325',name:'Syndopa 110',stock:-10,usage:1},
+{id:'m326',name:'Tab Bilfast-20',stock:0,usage:0},
+{id:'m327',name:'Tab Debrol-40,000',stock:0,usage:0},
+{id:'m328',name:'Tab Rostab-5mg',stock:10,usage:3},
+{id:'m329',name:'Tab Sanozar 2mg',stock:0,usage:0},
+{id:'m330',name:'Tab Syalox-300 plus',stock:0,usage:0},
+{id:'m331',name:'Teglimet 50/500',stock:0,usage:0},
+{id:'m332',name:'Telisa 80mg',stock:0,usage:0},
+{id:'m333',name:'Telisa-A 5/40',stock:0,usage:2},
+{id:'m334',name:'Telmedip 10/80',stock:0,usage:0},
+{id:'m335',name:'Telmidip 5/40 mg Tab.',stock:0,usage:2},
+{id:'m336',name:'Telmidip 10/80 mg Tab.',stock:40,usage:5},
+{id:'m337',name:'Telmilok-40',stock:30,usage:0},
+{id:'m338',name:'Telmipres 80mg Tab.',stock:40,usage:5},
+{id:'m339',name:'Telmipress-80',stock:0,usage:0},
+{id:'m340',name:'Tetrax 500mg Cap.',stock:88,usage:1},
+{id:'m341',name:'Thyrin 50mg Tab.',stock:75,usage:2},
+{id:'m342',name:'Ticamet 250 HFA Cap.',stock:1,usage:1},
+{id:'m343',name:'Tobacit XR 11mg',stock:0,usage:0},
+{id:'m344',name:'Tofacit XR',stock:66,usage:3},
+{id:'m345',name:'Tofacit Xr 600mg Tab.',stock:0,usage:0},
+{id:'m346',name:'Togent Cream',stock:1,usage:6},
+{id:'m347',name:'Topicort Cream',stock:3,usage:2},
+{id:'m348',name:'Torasol Inhaler',stock:0,usage:0},
+{id:'m349',name:'Trangina -MR',stock:250,usage:3},
+{id:'m350',name:'Unix-C Lotion',stock:1,usage:2},
+{id:'m351',name:'Urokil plus 200mg',stock:4,usage:0},
+{id:'m352',name:'Urokit plus syp',stock:1,usage:3},
+{id:'m353',name:'Uromax-D',stock:-10,usage:1},
+{id:'m354',name:'Uromax-0.4mg',stock:70,usage:0},
+{id:'m355',name:'Uromax-D',stock:-10,usage:1},
+{id:'m356',name:'Utramol Retard (50)',stock:30,usage:0},
+{id:'m357',name:'Veetra-8mg',stock:10,usage:0},
+{id:'m358',name:'Vergon 5mg Tab.',stock:265,usage:3},
+{id:'m359',name:'Viodin Mouthwash',stock:6,usage:1},
+{id:'m360',name:'Viodin Solution',stock:-2,usage:1},
+{id:'m361',name:'Visral-50 Tab',stock:320,usage:3},
+{id:'m362',name:'Vitamax-D 40000 Cap.',stock:0,usage:0},
+{id:'m363',name:'Volicool Gel',stock:0,usage:0},
+{id:'m364',name:'Xinc 20mg Tab.',stock:0,usage:0},
+{id:'m365',name:'Xinc-B Tab.',stock:50,usage:18},
+{id:'m366',name:'Xinc-B Syp',stock:196,usage:8},
+{id:'m367',name:'Xyril 10mg Tab.',stock:675,usage:13},
+{id:'m368',name:'Xyril 25mg Tab.',stock:560,usage:1},
+{id:'m369',name:'Xyril-10mg',stock:0,usage:0},
+{id:'m370',name:'Zesup 20mg Tab.',stock:210,usage:1},
+{id:'m371',name:'Zif CI Cap.',stock:830,usage:6},
+{id:'m372',name:'Zofra Syp.',stock:8,usage:2},
+{id:'m373',name:'Zimax 500mg',stock:68,usage:1},
+{id:'m374',name:'Zithrox 500mg',stock:12,usage:1},
+{id:'m375',name:'Zovia Kids 100ml Syp.',stock:40,usage:1},
+{id:'m376',name:'A-Meb 135 Tab',stock:80,usage:0},
+{id:'m377',name:'Abetis-20mg Tab',stock:70,usage:0},
+{id:'m378',name:'Abetis-40mg Tab',stock:10,usage:0},
+{id:'m379',name:'Acerux 3% Oint',stock:2,usage:0},
+{id:'m380',name:'Adora-500mg Cap',stock:14,usage:0},
+{id:'m381',name:'Aflen 1% Cream',stock:4,usage:1},
+{id:'m382',name:'Alben Tab',stock:184,usage:0},
+{id:'m383',name:'Alzolam 0.25mg Tab',stock:30,usage:0},
+{id:'m384',name:'Amdocal Plus',stock:10,usage:1},
+{id:'m385',name:'Amdocal Plus-50mg Tab',stock:40,usage:0},
+{id:'m386',name:'Amlotab-5mg Tab',stock:169,usage:2},
+{id:'m387',name:'Ancor Plus-2.5mg Tab',stock:20,usage:0},
+{id:'m388',name:'Angilock-25mg Tab',stock:40,usage:0},
+{id:'m389',name:'Anril-Sprays',stock:2,usage:0},
+{id:'m390',name:'Arth-A - Max Tab',stock:120,usage:0},
+{id:'m391',name:'Azithromycin-500mg Tab',stock:29,usage:0},
+{id:'m392',name:'B-50 Forte Cap',stock:230,usage:0},
+{id:'m393',name:'B-9 - Syp',stock:15,usage:2},
+{id:'m394',name:'Belicort 0.5mg Tab',stock:15,usage:0},
+{id:'m395',name:'Betameson-N Cream',stock:4,usage:0},
+{id:'m396',name:'Betanal 25mg Tab',stock:80,usage:0},
+{id:'m397',name:'Bizoran Executive / DO 10/40mg Tab',stock:20,usage:0},
+{id:'m398',name:'Brodil-2mg Tab',stock:500,usage:0},
+{id:'m399',name:'Brodil-Syp',stock:2,usage:0},
+{id:'m400',name:'Butemet 200mg Convicap',stock:24,usage:0},
+{id:'m401',name:'Cardizem-30mg Tab',stock:0,usage:1},
+{id:'m402',name:'Carevas-5mg Tab',stock:50,usage:0},
+{id:'m403',name:'Ceevit DS Tab',stock:76,usage:0},
+{id:'m404',name:'Cefetid-400mg Cap',stock:70,usage:0},
+{id:'m405',name:'Cilosta-100mg Tab',stock:30,usage:0},
+{id:'m406',name:'Ciprocin-250mg-Syp',stock:3,usage:0},
+{id:'m407',name:'Citofer R-210mg Tab',stock:12,usage:0},
+{id:'m408',name:'Clavucef -250mg Tab',stock:48,usage:0},
+{id:'m409',name:'Clofenac-50mg Tab',stock:66,usage:0},
+{id:'m410',name:'Contine-200mg Tab',stock:100,usage:0},
+{id:'m411',name:'Cosmotrin-Cream-10mg',stock:3,usage:0},
+{id:'m412',name:'Coveram 4/5mg Tab',stock:30,usage:0},
+{id:'m413',name:'D-Rise 200000 IU P',stock:2,usage:0},
+{id:'m414',name:'Defcort DO 24mg Tab',stock:39,usage:0},
+{id:'m415',name:'Defcort-6mg Tab',stock:25,usage:0},
+{id:'m416',name:'Dermasol-N Ointment',stock:2,usage:1},
+{id:'m417',name:'Dermex-Oint',stock:2,usage:0},
+{id:'m418',name:'Dicaltrol-0.25mg Cap',stock:30,usage:0},
+{id:'m419',name:'Dicliz Plus Tab',stock:50,usage:0},
+{id:'m420',name:'Diprosal-Lotion',stock:1,usage:0},
+{id:'m421',name:'Dizmo-50mg Tab',stock:60,usage:0},
+{id:'m422',name:'Domin-5mg P',stock:16,usage:0},
+{id:'m423',name:'Domiren-10mg Tab',stock:150,usage:0},
+{id:'m424',name:'Duralax-5mg Tab',stock:170,usage:1},
+{id:'m425',name:'Dyvon-Plus-20mg P',stock:1,usage:0},
+{id:'m426',name:'E-CAP-400mg IU Cap',stock:830,usage:1},
+{id:'m427',name:'Econate Plus-10mg P',stock:34,usage:0},
+{id:'m428',name:'Ecozol-Cream',stock:18,usage:0},
+{id:'m429',name:'Edemide DO-40mg Tab',stock:130,usage:0},
+{id:'m430',name:'Edemide-20mg Tab',stock:143,usage:0},
+{id:'m431',name:'Egvo-D Tab',stock:20,usage:0},
+{id:'m432',name:'Elimata-Lotion',stock:3,usage:0},
+{id:'m433',name:'Elod CP-5mg Tab',stock:20,usage:0},
+{id:'m434',name:'Empaglif-10mg Tab',stock:19,usage:0},
+{id:'m435',name:'Empalina-25/5 Tab',stock:20,usage:0},
+{id:'m436',name:'Empatab-10mg Tab',stock:44,usage:1},
+{id:'m437',name:'Endo-Free 2.5mg Tab',stock:0,usage:1},
+{id:'m438',name:'Entacy-Plus Tab',stock:680,usage:0},
+{id:'m439',name:'Exium-20mg Cap',stock:10,usage:0},
+{id:'m440',name:'EZYlife Tab',stock:108,usage:0},
+{id:'m441',name:'Famas-Syp',stock:5,usage:0},
+{id:'m442',name:'Famotack-20mg Tab',stock:19,usage:3},
+{id:'m443',name:'Famotack-Syp',stock:9,usage:0},
+{id:'m444',name:'Fexo DO-60mg Tab',stock:40,usage:1},
+{id:'m445',name:'Flagyl-400mg Tab',stock:75,usage:0},
+{id:'m446',name:'Flagyl-Syp',stock:3,usage:0},
+{id:'m447',name:'Flucloxin-500mg Cap',stock:148,usage:0},
+{id:'m448',name:'Flucoder 50mg Cap',stock:80,usage:0},
+{id:'m449',name:'Flucoder-Syp',stock:9,usage:2},
+{id:'m450',name:'Flucon-50mg Cap',stock:275,usage:0},
+{id:'m451',name:'Flux-250mg Cap',stock:140,usage:0},
+{id:'m452',name:'Fungicort-Cream',stock:13,usage:0},
+{id:'m453',name:'Fungidal-HC-Cream',stock:1,usage:0},
+{id:'m454',name:'Fusid-40mg Tab',stock:200,usage:0},
+{id:'m455',name:'Fusitop-HC Cream',stock:4,usage:0},
+{id:'m456',name:'Gleazy-Jelly P',stock:1,usage:0},
+{id:'m457',name:'Hemorif-50mg Tab',stock:30,usage:0},
+{id:'m458',name:'Hypophos Tab',stock:30,usage:0},
+{id:'m459',name:'Kerasol DO-6% P',stock:3,usage:0},
+{id:'m460',name:'Leanxit-10mg Tab',stock:90,usage:0},
+{id:'m461',name:'Leocor-Syp',stock:48,usage:0},
+{id:'m462',name:'Levosina-500mg Tab',stock:39,usage:0},
+{id:'m463',name:'Levoxin-750mg Tab',stock:20,usage:0},
+{id:'m464',name:'Limbix Tab',stock:30,usage:0},
+{id:'m465',name:'Linatab-M 2.5/500mg Tab',stock:270,usage:0},
+{id:'m466',name:'Lindac-200mg Tab',stock:0,usage:1},
+{id:'m467',name:'Lino-M-850 Tab',stock:30,usage:0},
+{id:'m468',name:'Lucent Cap',stock:30,usage:0},
+{id:'m469',name:'Melasin-E P',stock:2,usage:0},
+{id:'m470',name:'Menaril-8mg Tab',stock:15,usage:0},
+{id:'m471',name:'Methcol-500mg Tab',stock:60,usage:0},
+{id:'m472',name:'Metryl-400mg Tab',stock:39,usage:1},
+{id:'m473',name:'Myolax-50mg Tab',stock:40,usage:1},
+{id:'m474',name:'Nabulmet DO-750mg Tab',stock:30,usage:0},
+{id:'m475',name:'Nervalin-50mg Cap',stock:20,usage:0},
+{id:'m476',name:'Nidipine-SR-20mg Tab',stock:60,usage:0},
+{id:'m477',name:'Nintoin-SR-100mg Cap',stock:74,usage:0},
+{id:'m478',name:'Nutrem-Gold Tab',stock:780,usage:1},
+{id:'m479',name:'Obsil-Syp',stock:9,usage:0},
+{id:'m480',name:'Olmecar-10mg Tab',stock:210,usage:0},
+{id:'m481',name:'Orbas Plus-20/12.5mg Tab',stock:200,usage:1},
+{id:'m482',name:'Orbas-20mg Tab',stock:290,usage:2},
+{id:'m483',name:'Ovocal-D Tab',stock:20,usage:0},
+{id:'m484',name:'Oximaplus-Acticap Cap',stock:20,usage:0},
+{id:'m485',name:'Penvik-DS-500mg Tab',stock:50,usage:0},
+{id:'m486',name:'Peptid 40mg/5 Syp',stock:20,usage:1},
+{id:'m487',name:'Peratrum Tab',stock:10,usage:0},
+{id:'m488',name:'Perkinil-5mg Tab',stock:200,usage:0},
+{id:'m489',name:'PG-50mg Cap',stock:70,usage:0},
+{id:'m490',name:'Precodil-10mg Tab',stock:73,usage:2},
+{id:'m491',name:'Procyst-500mg Tab',stock:30,usage:0},
+{id:'m492',name:'Quiet-25mg Tab',stock:63,usage:0},
+{id:'m493',name:'Recodep 12.5mg Tab',stock:50,usage:0},
+{id:'m494',name:'Remmo-40mg Cap',stock:19,usage:0},
+{id:'m495',name:'Reservix SR 200mg Tab',stock:40,usage:0},
+{id:'m496',name:'Ridon-5mg Syp',stock:2,usage:0},
+{id:'m497',name:'Rolac 10mg Tab',stock:90,usage:1},
+{id:'m498',name:'Romycin 500mg Tab',stock:15,usage:0},
+{id:'m499',name:'Rosen-28mg Tab',stock:56,usage:0},
+{id:'m500',name:'Rufast 10mg Tab',stock:98,usage:0},
+{id:'m501',name:'Rynex D/D',stock:3,usage:0},
+{id:'m502',name:'Sacuva-100mg Tab',stock:150,usage:0},
+{id:'m503',name:'Salflu 250mg Rotacap Cap',stock:30,usage:0},
+{id:'m504',name:'Salflu DO 500mg Cap',stock:30,usage:0},
+{id:'m505',name:'Salmolin-L-Syp',stock:37,usage:0},
+{id:'m506',name:'Salost DR 35mg Tab',stock:4,usage:0},
+{id:'m507',name:'Secnid DS-1000mg Tab',stock:30,usage:0},
+{id:'m508',name:'Secrin-1mg Tab',stock:40,usage:0},
+{id:'m509',name:'Sedil 5mg Tab',stock:406,usage:0},
+{id:'m510',name:'Sefrad-Syp',stock:2,usage:0},
+{id:'m511',name:'Silvec 1% Cream',stock:1,usage:0},
+{id:'m512',name:'Solas-100mg Tab',stock:62,usage:0},
+{id:'m513',name:'Sopibar-600mg Tab',stock:180,usage:0},
+{id:'m514',name:'Soritar-50mg Skin Cream',stock:1,usage:0},
+{id:'m515',name:'Solo N/D',stock:61,usage:4},
+{id:'m516',name:'Synflex TS Tab',stock:15,usage:0},
+{id:'m517',name:'Tamen Syp',stock:4,usage:1},
+{id:'m518',name:'Tartica 5mg Tab',stock:20,usage:0},
+{id:'m519',name:'Teliga-A 5/40mg Tab',stock:280,usage:2},
+{id:'m520',name:'Temipres Plus 80/12.5mg Tab',stock:40,usage:0},
+{id:'m521',name:'Tibo 2.5mg Tab',stock:10,usage:0},
+{id:'m522',name:'Ticamet-250mg Cap',stock:42,usage:0},
+{id:'m523',name:'Tiginor 10mg Tab',stock:30,usage:0},
+{id:'m524',name:'Tiginor 20mg Tab',stock:30,usage:0},
+{id:'m525',name:'Toridazole Plus 10mg Cream',stock:6,usage:0},
+{id:'m526',name:'Tory 60mg Tab',stock:60,usage:0},
+{id:'m527',name:'Traneta 5mg Tab',stock:49,usage:0},
+{id:'m528',name:'Tryptin DO 25mg Tab',stock:275,usage:0},
+{id:'m529',name:'Tryptin-10mg Tab',stock:340,usage:2},
+{id:'m530',name:'Tufnil ACC-P/D',stock:6,usage:0},
+{id:'m531',name:'Tufnil Tab',stock:26,usage:0},
+{id:'m532',name:'Ucol 2mg Tab',stock:0,usage:1},
+{id:'m533',name:'Urobin 5mg Tab',stock:15,usage:0},
+{id:'m534',name:'Virux 200mg Tab',stock:37,usage:0},
+{id:'m535',name:'Virux Cream',stock:5,usage:1},
+{id:'m536',name:'Virux Do Syp',stock:1,usage:0},
+{id:'m537',name:'Vorifast 200mg Tab',stock:10,usage:0},
+{id:'m538',name:'Waxsol 0.5% Drop',stock:1,usage:0},
+{id:'m539',name:'Xamic-500mg Cap',stock:5,usage:0},
+{id:'m540',name:'Xine Syp',stock:9,usage:0},
+{id:'m541',name:'Xyflo 10mg Tab',stock:5,usage:0},
+{id:'m542',name:'Zimax Syp',stock:4,usage:2},
+{id:'m543',name:'Zithrox 500mg Tab',stock:14,usage:0},
+{id:'m544',name:'Zodef Syp',stock:2,usage:0},
+{id:'m545',name:'Zofra DO-8mg Tab',stock:8,usage:0},
+{id:'m546',name:'Lactose 100ml Syp',stock:10,usage:1},
+{id:'m547',name:'Orthoprin-5/40',stock:300,usage:1},
+{id:'m548',name:'Rupatol .05 mg tab',stock:200,usage:1},
+{id:'m549',name:'Saluva 24 mg + 26 mg',stock:180,usage:1},
+{id:'m550',name:'Zef 30',stock:50,usage:0},
+{id:'m551',name:'Otosil Syp.',stock:3,usage:2},
+{id:'m552',name:'Emlino 5/10 Tab.',stock:55,usage:5},
+{id:'m553',name:'Sergel-20',stock:60,usage:4},
+{id:'m554',name:'Diclofen 50',stock:0,usage:0},
+{id:'m555',name:'Montene 10mg',stock:386,usage:11},
+{id:'m556',name:'Nomin 10mg',stock:20,usage:1},
+{id:'m557',name:'Doxiva-200',stock:34,usage:1},
+{id:'m558',name:'Sinamin Syp.',stock:5,usage:0},
+{id:'m559',name:'Alfalok XR 2.5mg tab.',stock:0,usage:1},
+{id:'m560',name:'Entagel Syp.',stock:4,usage:1},
+{id:'m561',name:'Monus 5mg',stock:15,usage:2},
+{id:'m562',name:'Zovirax Cream',stock:5,usage:2},
+{id:'m563',name:'Seclo 20',stock:40,usage:1},
+{id:'m564',name:'Aceclofenac',stock:40,usage:1},
+{id:'m565',name:'Tolson 50mg',stock:43,usage:1},
+{id:'m566',name:'Magacil Plus Syp.',stock:4,usage:1},
+{id:'m567',name:'Zisup 20mg Tab.',stock:0,usage:2},
+{id:'m568',name:'Calamine Lotion',stock:0,usage:2},
+{id:'m569',name:'Ridon 10mg Tab.',stock:0,usage:1},
+{id:'m570',name:'Rozavel 10mg Tab.',stock:50,usage:1},
+{id:'m571',name:'Nizoder 2% Shempo',stock:1,usage:2},
+{id:'m572',name:'Valex CR 300mg',stock:30,usage:2},
+{id:'m573',name:'Pramin 25mg',stock:40,usage:1},
+{id:'m574',name:'Emolia Cream',stock:9,usage:1},
+{id:'m575',name:'Solifen 5mg Tab.',stock:30,usage:0},
+{id:'m576',name:'Betmira ER 25',stock:20,usage:0},
+{id:'m577',name:'Clevucef 500mg Tab.',stock:8,usage:1},
+{id:'m578',name:'Albendazole-400mg',stock:18,usage:1},
+{id:'m579',name:'Clavacef-250mg',stock:40,usage:1}
+];
+
+const ENTRIES_SEED = [
+{id:'e1',date:'2026-07-02',medId:'m61',medName:'CEF-3 Sus. for Powder 30ml',type:'out',qty:1,stockAfter:7,prevStock:8,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e2',date:'2026-07-02',medId:'m551',medName:'Otosil Syp.',type:'out',qty:1,stockAfter:3,prevStock:4,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e3',date:'2026-07-02',medId:'m289',medName:'Renova 60ml Syp.',type:'out',qty:1,stockAfter:21,prevStock:22,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e4',date:'2026-07-02',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:10,stockAfter:1200,prevStock:1210,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e5',date:'2026-07-02',medId:'m552',medName:'Emlino 5/10 Tab.',type:'in',qty:20,stockAfter:20,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e6',date:'2026-07-02',medId:'m552',medName:'Emlino 5/10 Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e7',date:'2026-07-02',medId:'m85',medName:'Compred XR-60',type:'out',qty:20,stockAfter:40,prevStock:60,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e8',date:'2026-07-02',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:520,prevStock:530,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e9',date:'2026-07-02',medId:'m225',medName:'Napa-500',type:'out',qty:20,stockAfter:190,prevStock:210,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e10',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:30,stockAfter:20,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e11',date:'2026-07-02',medId:'m328',medName:'Tab Rostab-5mg',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e12',date:'2026-07-02',medId:'m38',medName:'Benzit 10mg tab.',type:'out',qty:10,stockAfter:235,prevStock:245,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e13',date:'2026-07-02',medId:'m311',medName:'Sergel-40mg',type:'out',qty:20,stockAfter:100,prevStock:120,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e14',date:'2026-07-02',medId:'m338',medName:'Telmipres 80mg Tab.',type:'out',qty:10,stockAfter:20,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e15',date:'2026-07-02',medId:'m559',medName:'Alfalok XR 2.5mg tab.',type:'out',qty:14,stockAfter:0,prevStock:14,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e16',date:'2026-07-02',medId:'m560',medName:'Entagel Syp.',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e17',date:'2026-07-02',medId:'m55',medName:'Calbo-D',type:'in',qty:60,stockAfter:20,prevStock:-40,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e18',date:'2026-07-02',medId:'m55',medName:'Calbo-D',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e19',date:'2026-07-02',medId:'m555',medName:'Montene 10mg',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e20',date:'2026-07-02',medId:'m109',medName:'Doxiflo 200mg Tab.',type:'out',qty:20,stockAfter:580,prevStock:600,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e21',date:'2026-07-02',medId:'m63',medName:'Ceftid 50ml Syrup',type:'out',qty:1,stockAfter:29,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e22',date:'2026-07-02',medId:'m347',medName:'Topicort Cream',type:'out',qty:1,stockAfter:3,prevStock:4,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e23',date:'2026-07-02',medId:'m350',medName:'Unix-C Lotion',type:'out',qty:1,stockAfter:1,prevStock:2,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e24',date:'2026-07-02',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:510,prevStock:520,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e25',date:'2026-07-02',medId:'m235',medName:'Nervafix 600mg Tab.',type:'in',qty:50,stockAfter:20,prevStock:-30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e26',date:'2026-07-02',medId:'m235',medName:'Nervafix 600mg Tab.',type:'out',qty:10,stockAfter:10,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e27',date:'2026-07-02',medId:'m555',medName:'Montene 10mg',type:'in',qty:30,stockAfter:30,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e28',date:'2026-07-02',medId:'m555',medName:'Montene 10mg',type:'out',qty:4,stockAfter:26,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e29',date:'2026-07-02',medId:'m54',medName:'Boxol 100ml Syp.',type:'out',qty:1,stockAfter:39,prevStock:40,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e30',date:'2026-07-02',medId:'m141',medName:'Fixal 50ml Syp.',type:'out',qty:1,stockAfter:32,prevStock:33,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e31',date:'2026-07-02',medId:'m561',medName:'Monus 5mg',type:'in',qty:30,stockAfter:30,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e32',date:'2026-07-02',medId:'m561',medName:'Monus 5mg',type:'out',qty:15,stockAfter:15,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e33',date:'2026-07-02',medId:'m80',medName:'Clopid 75mg Tab.',type:'in',qty:30,stockAfter:48,prevStock:18,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e34',date:'2026-07-02',medId:'m80',medName:'Clopid 75mg Tab.',type:'out',qty:14,stockAfter:34,prevStock:48,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e35',date:'2026-07-02',medId:'m328',medName:'Tab Rostab-5mg',type:'out',qty:10,stockAfter:30,prevStock:40,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e36',date:'2026-07-02',medId:'m46',medName:'Betaloc-50 Tab',type:'out',qty:14,stockAfter:84,prevStock:98,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e37',date:'2026-07-02',medId:'m125',medName:'Entacid plus syp.',type:'in',qty:10,stockAfter:10,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e38',date:'2026-07-02',medId:'m125',medName:'Entacid plus syp.',type:'out',qty:1,stockAfter:9,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e39',date:'2026-07-02',medId:'m132',medName:'Feglo FZ',type:'out',qty:20,stockAfter:20,prevStock:40,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e40',date:'2026-07-02',medId:'m562',medName:'Zovirax Cream',type:'in',qty:5,stockAfter:6,prevStock:1,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e41',date:'2026-07-02',medId:'m562',medName:'Zovirax Cream',type:'out',qty:1,stockAfter:5,prevStock:6,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e42',date:'2026-07-02',medId:'m174',medName:'Itra Syp',type:'out',qty:1,stockAfter:0,prevStock:1,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e43',date:'2026-07-02',medId:'m366',medName:'Xinc-B Syp',type:'out',qty:1,stockAfter:197,prevStock:198,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e44',date:'2026-07-02',medId:'m290',medName:'Renova Max',type:'out',qty:10,stockAfter:240,prevStock:250,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e45',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'out',qty:10,stockAfter:50,prevStock:60,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e46',date:'2026-07-02',medId:'m132',medName:'Feglo FZ',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e47',date:'2026-07-02',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1180,prevStock:1200,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e48',date:'2026-07-02',medId:'m555',medName:'Montene 10mg',type:'out',qty:10,stockAfter:16,prevStock:26,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e49',date:'2026-07-02',medId:'m109',medName:'Doxiflo 200mg Tab.',type:'out',qty:20,stockAfter:560,prevStock:580,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e50',date:'2026-07-02',medId:'m51',medName:'Bilfast-20mg Tab.',type:'in',qty:30,stockAfter:40,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e51',date:'2026-07-02',medId:'m51',medName:'Bilfast-20mg Tab.',type:'out',qty:10,stockAfter:30,prevStock:40,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e52',date:'2026-07-02',medId:'m259',medName:'Ostocal-D',type:'in',qty:60,stockAfter:70,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e53',date:'2026-07-02',medId:'m259',medName:'Ostocal-D',type:'out',qty:30,stockAfter:40,prevStock:70,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e54',date:'2026-07-02',medId:'m284',medName:'Relaxo 25mg',type:'out',qty:14,stockAfter:36,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e55',date:'2026-07-02',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1160,prevStock:1180,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e56',date:'2026-07-02',medId:'m114',medName:'Ecosprin 75',type:'out',qty:20,stockAfter:2,prevStock:22,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e57',date:'2026-07-02',medId:'m328',medName:'Tab Rostab-5mg',type:'out',qty:20,stockAfter:10,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e58',date:'2026-07-02',medId:'m187',medName:'Linita-5/lino-5',type:'out',qty:20,stockAfter:300,prevStock:320,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e59',date:'2026-07-02',medId:'m84',medName:'Comet-500',type:'out',qty:40,stockAfter:180,prevStock:220,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e60',date:'2026-07-02',medId:'m386',medName:'Amlotab-5mg Tab',type:'out',qty:10,stockAfter:179,prevStock:189,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e61',date:'2026-07-02',medId:'m237',medName:'Nexcital 5mg Tab.',type:'out',qty:10,stockAfter:20,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e62',date:'2026-07-02',medId:'m259',medName:'Ostocal-D',type:'out',qty:30,stockAfter:10,prevStock:40,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e63',date:'2026-07-02',medId:'m269',medName:'PG-25mg',type:'out',qty:20,stockAfter:10,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e64',date:'2026-07-02',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1140,prevStock:1160,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e65',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e66',date:'2026-07-02',medId:'m371',medName:'Zif CI Cap.',type:'out',qty:20,stockAfter:880,prevStock:900,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e67',date:'2026-07-02',medId:'m38',medName:'Benzit 10mg tab.',type:'out',qty:10,stockAfter:225,prevStock:235,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e68',date:'2026-07-02',medId:'m563',medName:'Seclo 20',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e69',date:'2026-07-02',medId:'m564',medName:'Aceclofenac',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e70',date:'2026-07-02',medId:'m565',medName:'Tolson 50mg',type:'out',qty:7,stockAfter:43,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e71',date:'2026-07-02',medId:'m259',medName:'Ostocal-D',type:'in',qty:60,stockAfter:70,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e72',date:'2026-07-02',medId:'m259',medName:'Ostocal-D',type:'out',qty:20,stockAfter:50,prevStock:70,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e73',date:'2026-07-02',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1120,prevStock:1140,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e74',date:'2026-07-02',medId:'m269',medName:'PG-25mg',type:'in',qty:100,stockAfter:110,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e75',date:'2026-07-02',medId:'m269',medName:'PG-25mg',type:'out',qty:20,stockAfter:90,prevStock:110,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e76',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'in',qty:100,stockAfter:100,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e77',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:20,stockAfter:80,prevStock:100,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e78',date:'2026-07-02',medId:'m566',medName:'Magacil Plus Syp.',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e79',date:'2026-07-02',medId:'m311',medName:'Sergel-40mg',type:'out',qty:20,stockAfter:80,prevStock:100,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e80',date:'2026-07-02',medId:'m52',medName:'Bizoran 5/20mg',type:'in',qty:100,stockAfter:105,prevStock:5,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e81',date:'2026-07-02',medId:'m52',medName:'Bizoran 5/20mg',type:'out',qty:15,stockAfter:90,prevStock:105,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e82',date:'2026-07-02',medId:'m553',medName:'Sergel-20',type:'in',qty:100,stockAfter:100,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e83',date:'2026-07-02',medId:'m37',medName:'Beklo 10mg',type:'out',qty:28,stockAfter:272,prevStock:300,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e84',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'out',qty:20,stockAfter:30,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e85',date:'2026-07-02',medId:'m236',medName:'Neuro-B',type:'out',qty:30,stockAfter:30,prevStock:60,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e86',date:'2026-07-02',medId:'m553',medName:'Sergel-20',type:'out',qty:20,stockAfter:80,prevStock:100,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e87',date:'2026-07-02',medId:'m52',medName:'Bizoran 5/20mg',type:'out',qty:20,stockAfter:70,prevStock:90,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e88',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'out',qty:10,stockAfter:20,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e89',date:'2026-07-02',medId:'m286',medName:'Relentus 2mg Tab.',type:'in',qty:100,stockAfter:40,prevStock:-60,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e90',date:'2026-07-02',medId:'m286',medName:'Relentus 2mg Tab.',type:'out',qty:10,stockAfter:30,prevStock:40,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e91',date:'2026-07-02',medId:'m72',medName:'Cinaron 10mg Tab.',type:'in',qty:100,stockAfter:105,prevStock:5,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e92',date:'2026-07-02',medId:'m72',medName:'Cinaron 10mg Tab.',type:'out',qty:10,stockAfter:95,prevStock:105,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e93',date:'2026-07-02',medId:'m84',medName:'Comet-500',type:'out',qty:10,stockAfter:170,prevStock:180,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e94',date:'2026-07-02',medId:'m187',medName:'Linita-5/lino-5',type:'out',qty:10,stockAfter:290,prevStock:300,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e95',date:'2026-07-02',medId:'m49',medName:'Bexitrol F 50/500',type:'in',qty:100,stockAfter:100,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e96',date:'2026-07-02',medId:'m49',medName:'Bexitrol F 50/500',type:'out',qty:10,stockAfter:90,prevStock:100,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e97',date:'2026-07-02',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:500,prevStock:510,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e98',date:'2026-07-02',medId:'m291',medName:'Renova XR Tab.',type:'out',qty:20,stockAfter:257,prevStock:277,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e99',date:'2026-07-02',medId:'m196',medName:'Lulitop-1% Cream',type:'out',qty:1,stockAfter:0,prevStock:1,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e100',date:'2026-07-02',medId:'m51',medName:'Bilfast-20mg Tab.',type:'out',qty:10,stockAfter:20,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e101',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'out',qty:10,stockAfter:10,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e102',date:'2026-07-02',medId:'m236',medName:'Neuro-B',type:'out',qty:30,stockAfter:0,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e103',date:'2026-07-02',medId:'m59',medName:'Ceevit 250mg Tab.',type:'out',qty:20,stockAfter:220,prevStock:240,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e104',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:30,stockAfter:50,prevStock:80,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e105',date:'2026-07-02',medId:'m553',medName:'Sergel-20',type:'out',qty:20,stockAfter:60,prevStock:80,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e106',date:'2026-07-02',medId:'m209',medName:'Micosina Oral Gel',type:'out',qty:1,stockAfter:2,prevStock:3,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e107',date:'2026-07-02',medId:'m54',medName:'Boxol 100ml Syp.',type:'out',qty:1,stockAfter:29,prevStock:30,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e108',date:'2026-07-02',medId:'m63',medName:'Ceftid 50ml Syrup',type:'out',qty:1,stockAfter:28,prevStock:29,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e109',date:'2026-07-02',medId:'m289',medName:'Renova 60ml Syp.',type:'out',qty:1,stockAfter:20,prevStock:21,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e110',date:'2026-07-02',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:470,prevStock:480,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e111',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e112',date:'2026-07-02',medId:'m236',medName:'Neuro-B',type:'in',qty:150,stockAfter:150,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e113',date:'2026-07-02',medId:'m236',medName:'Neuro-B',type:'out',qty:30,stockAfter:120,prevStock:150,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e114',date:'2026-07-02',medId:'m39',medName:'Betabis 2.5 mg',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e115',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'in',qty:60,stockAfter:60,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e116',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'out',qty:10,stockAfter:50,prevStock:60,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e117',date:'2026-07-02',medId:'m252',medName:'Olmedip 5/20',type:'out',qty:30,stockAfter:20,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e118',date:'2026-07-02',medId:'m97',medName:'Delcyst 500mg',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e119',date:'2026-07-02',medId:'m437',medName:'Endo-Free 2.5mg Tab',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e120',date:'2026-07-02',medId:'m478',medName:'Nutrem-Gold Tab',type:'out',qty:30,stockAfter:780,prevStock:810,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e121',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:30,stockAfter:20,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e122',date:'2026-07-02',medId:'m577',medName:'Clevucef 500mg Tab.',type:'in',qty:8,stockAfter:8,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e123',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'in',qty:60,stockAfter:80,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e124',date:'2026-07-02',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:30,stockAfter:50,prevStock:80,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e125',date:'2026-07-02',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:460,prevStock:470,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e126',date:'2026-07-02',medId:'m519',medName:'Teliga-A 5/40mg Tab',type:'out',qty:10,stockAfter:280,prevStock:290,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e127',date:'2026-07-02',medId:'m37',medName:'Beklo 10mg',type:'out',qty:8,stockAfter:194,prevStock:202,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e128',date:'2026-07-02',medId:'m88',medName:'Cora-DX',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e129',date:'2026-07-02',medId:'m213',medName:'Miraba-5',type:'in',qty:10,stockAfter:20,prevStock:10,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e130',date:'2026-07-02',medId:'m213',medName:'Miraba-5',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e131',date:'2026-07-02',medId:'m373',medName:'Zimax 500mg',type:'out',qty:2,stockAfter:68,prevStock:70,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e132',date:'2026-07-02',medId:'m262',medName:'Paloxi 0.5mg',type:'out',qty:5,stockAfter:15,prevStock:20,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e133',date:'2026-07-02',medId:'m361',medName:'Visral-50 Tab',type:'in',qty:20,stockAfter:340,prevStock:320,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e134',date:'2026-07-02',medId:'m173',medName:'Itra Nova 65mg',type:'out',qty:20,stockAfter:110,prevStock:130,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e135',date:'2026-07-02',medId:'m196',medName:'Lulitop-1% Cream',type:'in',qty:5,stockAfter:5,prevStock:0,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e136',date:'2026-07-02',medId:'m196',medName:'Lulitop-1% Cream',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e137',date:'2026-07-02',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:20,stockAfter:685,prevStock:705,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e138',date:'2026-07-02',medId:'m517',medName:'Tamen Syp',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e139',date:'2026-07-02',medId:'m54',medName:'Boxol 100ml Syp.',type:'out',qty:1,stockAfter:28,prevStock:29,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e140',date:'2026-07-02',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:450,prevStock:460,createdAt:'2026-07-02T12:00:00.000Z'},
+{id:'e141',date:'2026-07-05',medId:'m71',medName:'Cildip 10mg',type:'out',qty:14,stockAfter:64,prevStock:78,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e142',date:'2026-07-05',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:10,stockAfter:1330,prevStock:1340,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e143',date:'2026-07-05',medId:'m324',medName:'Supravit G Cap.',type:'out',qty:20,stockAfter:615,prevStock:635,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e144',date:'2026-07-05',medId:'m317',medName:'Solas 30ml Syp',type:'out',qty:1,stockAfter:17,prevStock:18,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e145',date:'2026-07-05',medId:'m366',medName:'Xinc-B Syp',type:'out',qty:1,stockAfter:200,prevStock:201,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e146',date:'2026-07-05',medId:'m231',medName:'Napro-A 500',type:'out',qty:8,stockAfter:292,prevStock:300,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e147',date:'2026-07-05',medId:'m542',medName:'Zimax Syp',type:'out',qty:1,stockAfter:5,prevStock:6,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e148',date:'2026-07-05',medId:'m486',medName:'Peptid 40mg/5 Syp',type:'out',qty:1,stockAfter:20,prevStock:21,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e149',date:'2026-07-05',medId:'m393',medName:'B-9 - Syp',type:'out',qty:1,stockAfter:16,prevStock:17,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e150',date:'2026-07-05',medId:'m542',medName:'Zimax Syp',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e151',date:'2026-07-05',medId:'m290',medName:'Renova Max',type:'out',qty:14,stockAfter:264,prevStock:278,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e152',date:'2026-07-05',medId:'m553',medName:'Sergel-20',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e153',date:'2026-07-05',medId:'m230',medName:'Napro-A 250 Talb',type:'in',qty:14,stockAfter:14,prevStock:0,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e154',date:'2026-07-05',medId:'m228',medName:'Napro-A 250  Tab.',type:'out',qty:14,stockAfter:986,prevStock:1000,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e155',date:'2026-07-05',medId:'m442',medName:'Famotack-20mg Tab',type:'out',qty:10,stockAfter:30,prevStock:40,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e156',date:'2026-07-05',medId:'m264',medName:'Pase 0.5 mg',type:'out',qty:7,stockAfter:773,prevStock:780,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e157',date:'2026-07-05',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:30,stockAfter:50,prevStock:80,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e158',date:'2026-07-05',medId:'m38',medName:'Benzit 10mg tab.',type:'out',qty:10,stockAfter:245,prevStock:255,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e159',date:'2026-07-05',medId:'m59',medName:'Ceevit 250mg Tab.',type:'out',qty:20,stockAfter:280,prevStock:300,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e160',date:'2026-07-05',medId:'m264',medName:'Pase 0.5 mg',type:'out',qty:15,stockAfter:758,prevStock:773,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e161',date:'2026-07-05',medId:'m259',medName:'Ostocal-D',type:'out',qty:20,stockAfter:10,prevStock:30,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e162',date:'2026-07-05',medId:'m52',medName:'Bizoran 5/20mg',type:'out',qty:10,stockAfter:5,prevStock:15,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e163',date:'2026-07-05',medId:'m442',medName:'Famotack-20mg Tab',type:'out',qty:1,stockAfter:29,prevStock:30,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e164',date:'2026-07-05',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'out',qty:5,stockAfter:45,prevStock:50,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e165',date:'2026-07-05',medId:'m71',medName:'Cildip 10mg',type:'out',qty:14,stockAfter:50,prevStock:64,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e166',date:'2026-07-05',medId:'m43',medName:'Betabis plus (2.5/6.25)',type:'out',qty:15,stockAfter:5,prevStock:20,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e167',date:'2026-07-05',medId:'m19',medName:'Anclog-75mg',type:'out',qty:15,stockAfter:20,prevStock:35,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e168',date:'2026-07-05',medId:'m207',medName:'Metacard 35mg',type:'out',qty:14,stockAfter:2,prevStock:16,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e169',date:'2026-07-05',medId:'m384',medName:'Amdocal Plus',type:'out',qty:20,stockAfter:10,prevStock:30,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e170',date:'2026-07-05',medId:'m52',medName:'Bizoran 5/20mg',type:'in',qty:10,stockAfter:15,prevStock:5,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e171',date:'2026-07-05',medId:'m52',medName:'Bizoran 5/20mg',type:'out',qty:10,stockAfter:5,prevStock:15,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e172',date:'2026-07-05',medId:'m266',medName:'Peloxi 0.5mg Tab',type:'in',qty:20,stockAfter:5,prevStock:-15,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e173',date:'2026-07-05',medId:'m266',medName:'Peloxi 0.5mg Tab',type:'in',qty:20,stockAfter:25,prevStock:5,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e174',date:'2026-07-05',medId:'m266',medName:'Peloxi 0.5mg Tab',type:'out',qty:20,stockAfter:5,prevStock:25,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e175',date:'2026-07-05',medId:'m59',medName:'Ceevit 250mg Tab.',type:'out',qty:20,stockAfter:260,prevStock:280,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e176',date:'2026-07-05',medId:'m292',medName:'Rito-60/Setorib-60mg',type:'out',qty:10,stockAfter:30,prevStock:40,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e177',date:'2026-07-05',medId:'m358',medName:'Vergon 5mg Tab.',type:'out',qty:25,stockAfter:285,prevStock:310,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e178',date:'2026-07-05',medId:'m21',medName:'Angilock 50mg Tab.',type:'out',qty:10,stockAfter:320,prevStock:330,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e179',date:'2026-07-05',medId:'m555',medName:'Montene 10mg',type:'out',qty:10,stockAfter:10,prevStock:20,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e180',date:'2026-07-05',medId:'m191',medName:'Liptor-20/ATV',type:'out',qty:10,stockAfter:150,prevStock:160,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e181',date:'2026-07-05',medId:'m239',medName:'Nidocard Retard (2.6)',type:'in',qty:40,stockAfter:12,prevStock:-28,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e182',date:'2026-07-05',medId:'m277',medName:'Ramoril-1.25mg Tab.',type:'out',qty:5,stockAfter:45,prevStock:50,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e183',date:'2026-07-05',medId:'m436',medName:'Empatab-10mg Tab',type:'out',qty:10,stockAfter:44,prevStock:54,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e184',date:'2026-07-05',medId:'m84',medName:'Comet-500',type:'out',qty:20,stockAfter:220,prevStock:240,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e185',date:'2026-07-05',medId:'m47',medName:'Betalok-25mg',type:'out',qty:20,stockAfter:44,prevStock:64,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e186',date:'2026-07-05',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1310,prevStock:1330,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e187',date:'2026-07-05',medId:'m88',medName:'Cora-DX',type:'out',qty:20,stockAfter:80,prevStock:100,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e188',date:'2026-07-05',medId:'m236',medName:'Neuro-B',type:'in',qty:240,stockAfter:30,prevStock:-210,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e189',date:'2026-07-05',medId:'m466',medName:'Lindac-200mg Tab',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e190',date:'2026-07-05',medId:'m37',medName:'Beklo 10mg',type:'out',qty:20,stockAfter:334,prevStock:354,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e191',date:'2026-07-05',medId:'m214',medName:'Miraba-5mg',type:'in',qty:20,stockAfter:20,prevStock:0,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e192',date:'2026-07-05',medId:'m214',medName:'Miraba-5mg',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e193',date:'2026-07-05',medId:'m313',medName:'Shelcal-D',type:'in',qty:40,stockAfter:40,prevStock:0,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e194',date:'2026-07-05',medId:'m313',medName:'Shelcal-D',type:'out',qty:20,stockAfter:20,prevStock:40,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e195',date:'2026-07-05',medId:'m100',medName:'Dexlan 30mg Cap.',type:'in',qty:60,stockAfter:20,prevStock:-40,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e196',date:'2026-07-05',medId:'m100',medName:'Dexlan 30mg Cap.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e197',date:'2026-07-05',medId:'m236',medName:'Neuro-B',type:'out',qty:30,stockAfter:0,prevStock:30,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e198',date:'2026-07-05',medId:'m225',medName:'Napa-500',type:'out',qty:20,stockAfter:250,prevStock:270,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e199',date:'2026-07-05',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:530,prevStock:540,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e200',date:'2026-07-05',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:30,stockAfter:20,prevStock:50,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e201',date:'2026-07-05',medId:'m344',medName:'Tofacit XR',type:'out',qty:10,stockAfter:76,prevStock:86,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e202',date:'2026-07-05',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1290,prevStock:1310,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e203',date:'2026-07-05',medId:'m290',medName:'Renova Max',type:'out',qty:14,stockAfter:250,prevStock:264,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e204',date:'2026-07-05',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1270,prevStock:1290,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e205',date:'2026-07-05',medId:'m366',medName:'Xinc-B Syp',type:'out',qty:1,stockAfter:199,prevStock:200,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e206',date:'2026-07-05',medId:'m72',medName:'Cinaron 10mg Tab.',type:'out',qty:30,stockAfter:5,prevStock:35,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e207',date:'2026-07-05',medId:'m236',medName:'Neuro-B',type:'out',qty:30,stockAfter:60,prevStock:90,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e208',date:'2026-07-05',medId:'m191',medName:'Liptor-20/ATV',type:'out',qty:10,stockAfter:140,prevStock:150,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e209',date:'2026-07-05',medId:'m349',medName:'Trangina -MR',type:'out',qty:10,stockAfter:290,prevStock:300,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e210',date:'2026-07-05',medId:'m37',medName:'Beklo 10mg',type:'out',qty:14,stockAfter:320,prevStock:334,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e211',date:'2026-07-05',medId:'m88',medName:'Cora-DX',type:'out',qty:20,stockAfter:60,prevStock:80,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e212',date:'2026-07-05',medId:'m225',medName:'Napa-500',type:'out',qty:20,stockAfter:230,prevStock:250,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e213',date:'2026-07-05',medId:'m365',medName:'Xinc-B Tab.',type:'in',qty:30,stockAfter:50,prevStock:20,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e214',date:'2026-07-05',medId:'m372',medName:'Zofra Syp.',type:'out',qty:1,stockAfter:8,prevStock:9,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e215',date:'2026-07-05',medId:'m366',medName:'Xinc-B Syp',type:'out',qty:1,stockAfter:198,prevStock:199,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e216',date:'2026-07-05',medId:'m393',medName:'B-9 - Syp',type:'out',qty:1,stockAfter:15,prevStock:16,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e217',date:'2026-07-05',medId:'m317',medName:'Solas 30ml Syp',type:'out',qty:1,stockAfter:16,prevStock:17,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e218',date:'2026-07-05',medId:'m529',medName:'Tryptin-10mg Tab',type:'out',qty:10,stockAfter:350,prevStock:360,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e219',date:'2026-07-05',medId:'m220',medName:'Moodnor-10mg',type:'out',qty:10,stockAfter:180,prevStock:190,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e220',date:'2026-07-05',medId:'m165',medName:'Indever-10mg',type:'out',qty:10,stockAfter:173,prevStock:183,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e221',date:'2026-07-05',medId:'m556',medName:'Nomin 10mg',type:'out',qty:10,stockAfter:20,prevStock:30,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e222',date:'2026-07-05',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1250,prevStock:1270,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e223',date:'2026-07-05',medId:'m352',medName:'Urokit plus syp',type:'out',qty:1,stockAfter:3,prevStock:4,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e224',date:'2026-07-05',medId:'m225',medName:'Napa-500',type:'out',qty:20,stockAfter:210,prevStock:230,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e225',date:'2026-07-05',medId:'m557',medName:'Doxiva-200',type:'out',qty:16,stockAfter:34,prevStock:50,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e226',date:'2026-07-05',medId:'m37',medName:'Beklo 10mg',type:'out',qty:20,stockAfter:300,prevStock:320,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e227',date:'2026-07-05',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1230,prevStock:1250,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e228',date:'2026-07-05',medId:'m308',medName:'Seacoral Dx',type:'out',qty:30,stockAfter:1170,prevStock:1200,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e229',date:'2026-07-05',medId:'m30',medName:'Arth-A TS',type:'out',qty:10,stockAfter:326,prevStock:336,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e230',date:'2026-07-05',medId:'m231',medName:'Napro-A 500',type:'out',qty:8,stockAfter:284,prevStock:292,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e231',date:'2026-07-05',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1210,prevStock:1230,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e232',date:'2026-07-05',medId:'m8',medName:'Afun Cream 10gm',type:'out',qty:1,stockAfter:0,prevStock:1,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e233',date:'2026-07-05',medId:'m30',medName:'Arth-A TS',type:'out',qty:4,stockAfter:322,prevStock:326,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e234',date:'2026-07-05',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1160,prevStock:1170,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e235',date:'2026-07-05',medId:'m335',medName:'Telmidip 5/40 mg Tab.',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e236',date:'2026-07-05',medId:'m61',medName:'CEF-3 Sus. for Powder 30ml',type:'out',qty:1,stockAfter:8,prevStock:9,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e237',date:'2026-07-05',medId:'m381',medName:'Aflen 1% Cream',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-05T12:00:00.000Z'},
+{id:'e238',date:'2026-07-07',medId:'m16',medName:'Ambrox 100ml Syp',type:'out',qty:1,stockAfter:0,prevStock:1,createdAt:'2026-07-07T12:00:00.000Z'},
+{id:'e239',date:'2026-07-07',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'out',qty:20,stockAfter:15,prevStock:35,createdAt:'2026-07-07T12:00:00.000Z'},
+{id:'e240',date:'2026-07-09',medId:'m114',medName:'Ecosprin 75',type:'in',qty:252,stockAfter:254,prevStock:2,createdAt:'2026-07-09T12:00:00.000Z'},
+{id:'e241',date:'2026-07-09',medId:'m552',medName:'Emlino 5/10 Tab.',type:'in',qty:65,stockAfter:65,prevStock:0,createdAt:'2026-07-09T12:00:00.000Z'},
+{id:'e242',date:'2026-07-12',medId:'m173',medName:'Itra Nova 65mg',type:'in',qty:300,stockAfter:270,prevStock:-30,createdAt:'2026-07-12T12:00:00.000Z'},
+{id:'e243',date:'2026-07-12',medId:'m555',medName:'Montene 10mg',type:'in',qty:480,stockAfter:486,prevStock:6,createdAt:'2026-07-12T12:00:00.000Z'},
+{id:'e244',date:'2026-07-15',medId:'m307',medName:'Seacoral D',type:'out',qty:20,stockAfter:-20,prevStock:0,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e245',date:'2026-07-15',medId:'m307',medName:'Seacoral D',type:'in',qty:100,stockAfter:80,prevStock:-20,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e246',date:'2026-07-15',medId:'m311',medName:'Sergel-40mg',type:'in',qty:100,stockAfter:160,prevStock:60,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e247',date:'2026-07-15',medId:'m311',medName:'Sergel-40mg',type:'out',qty:40,stockAfter:120,prevStock:160,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e248',date:'2026-07-15',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'in',qty:120,stockAfter:70,prevStock:-50,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e249',date:'2026-07-15',medId:'m307',medName:'Seacoral D',type:'out',qty:20,stockAfter:60,prevStock:80,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e250',date:'2026-07-15',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'out',qty:20,stockAfter:50,prevStock:70,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e251',date:'2026-07-15',medId:'m88',medName:'Cora-DX',type:'in',qty:140,stockAfter:140,prevStock:0,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e252',date:'2026-07-15',medId:'m88',medName:'Cora-DX',type:'out',qty:40,stockAfter:100,prevStock:140,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e253',date:'2026-07-15',medId:'m307',medName:'Seacoral D',type:'out',qty:20,stockAfter:40,prevStock:60,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e254',date:'2026-07-15',medId:'m61',medName:'CEF-3 Sus. for Powder 30ml',type:'in',qty:10,stockAfter:9,prevStock:-1,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e255',date:'2026-07-15',medId:'m551',medName:'Otosil Syp.',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e256',date:'2026-07-15',medId:'m289',medName:'Renova 60ml Syp.',type:'out',qty:1,stockAfter:22,prevStock:23,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e257',date:'2026-07-15',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1360,prevStock:1380,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e258',date:'2026-07-15',medId:'m552',medName:'Emlino 5/10 Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e259',date:'2026-07-15',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:540,prevStock:550,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e260',date:'2026-07-15',medId:'m225',medName:'Napa-500',type:'out',qty:20,stockAfter:270,prevStock:290,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e261',date:'2026-07-15',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:30,stockAfter:0,prevStock:30,createdAt:'2026-07-15T12:00:00.000Z'},
+{id:'e262',date:'2026-07-16',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1340,prevStock:1360,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e263',date:'2026-07-16',medId:'m290',medName:'Renova Max',type:'out',qty:10,stockAfter:278,prevStock:288,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e264',date:'2026-07-16',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:10,stockAfter:795,prevStock:805,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e265',date:'2026-07-16',medId:'m365',medName:'Xinc-B Tab.',type:'in',qty:100,stockAfter:100,prevStock:0,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e266',date:'2026-07-16',medId:'m366',medName:'Xinc-B Syp',type:'in',qty:200,stockAfter:201,prevStock:1,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e267',date:'2026-07-16',medId:'m365',medName:'Xinc-B Tab.',type:'out',qty:20,stockAfter:80,prevStock:100,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e268',date:'2026-07-16',medId:'m80',medName:'Clopid 75mg Tab.',type:'out',qty:10,stockAfter:80,prevStock:90,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e269',date:'2026-07-16',medId:'m16',medName:'Ambrox 100ml Syp',type:'in',qty:10,stockAfter:10,prevStock:0,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e270',date:'2026-07-16',medId:'m16',medName:'Ambrox 100ml Syp',type:'out',qty:1,stockAfter:9,prevStock:10,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e271',date:'2026-07-16',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'in',qty:20,stockAfter:35,prevStock:15,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e272',date:'2026-07-16',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'out',qty:20,stockAfter:15,prevStock:35,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e273',date:'2026-07-16',medId:'m80',medName:'Clopid 75mg Tab.',type:'out',qty:10,stockAfter:70,prevStock:80,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e274',date:'2026-07-16',medId:'m96',medName:'Defrol 40000 Tab.',type:'in',qty:10,stockAfter:3,prevStock:-7,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e275',date:'2026-07-16',medId:'m96',medName:'Defrol 40000 Tab.',type:'out',qty:3,stockAfter:0,prevStock:3,createdAt:'2026-07-16T12:00:00.000Z'},
+{id:'e276',date:'2026-07-17',medId:'m515',medName:'Solo N/D',type:'in',qty:1,stockAfter:11,prevStock:10,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e277',date:'2026-07-17',medId:'m515',medName:'Solo N/D',type:'in',qty:50,stockAfter:61,prevStock:11,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e278',date:'2026-07-17',medId:'m17',medName:'A-Migel Oral Gel 15gm',type:'in',qty:10,stockAfter:10,prevStock:0,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e279',date:'2026-07-17',medId:'m5',medName:'Ace 100ml Syp.',type:'in',qty:100,stockAfter:100,prevStock:0,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e280',date:'2026-07-17',medId:'m43',medName:'Betabis plus (2.5/6.25)',type:'in',qty:15,stockAfter:20,prevStock:5,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e281',date:'2026-07-17',medId:'m72',medName:'Cinaron 10mg Tab.',type:'in',qty:30,stockAfter:35,prevStock:5,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e282',date:'2026-07-17',medId:'m236',medName:'Neuro-B',type:'in',qty:90,stockAfter:90,prevStock:0,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e283',date:'2026-07-17',medId:'m114',medName:'Ecosprin 75',type:'in',qty:50,stockAfter:22,prevStock:-28,createdAt:'2026-07-17T12:00:00.000Z'},
+{id:'e284',date:'2026-07-18',medId:'m8',medName:'Afun Cream 10gm',type:'in',qty:1,stockAfter:1,prevStock:0,createdAt:'2026-07-18T12:00:00.000Z'},
+{id:'e285',date:'2026-07-18',medId:'m335',medName:'Telmidip 5/40 mg Tab.',type:'in',qty:10,stockAfter:10,prevStock:0,createdAt:'2026-07-18T12:00:00.000Z'},
+{id:'e286',date:'2026-07-19',medId:'m54',medName:'Boxol 100ml Syp.',type:'out',qty:1,stockAfter:38,prevStock:39,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e287',date:'2026-07-19',medId:'m109',medName:'Doxiflo 200mg Tab.',type:'out',qty:20,stockAfter:540,prevStock:560,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e288',date:'2026-07-19',medId:'m555',medName:'Montene 10mg',type:'out',qty:10,stockAfter:6,prevStock:16,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e289',date:'2026-07-19',medId:'m59',medName:'Ceevit 250mg Tab.',type:'out',qty:20,stockAfter:240,prevStock:260,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e290',date:'2026-07-19',medId:'m109',medName:'Doxiflo 200mg Tab.',type:'out',qty:14,stockAfter:526,prevStock:540,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e291',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:20,stockAfter:1140,prevStock:1160,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e292',date:'2026-07-19',medId:'m112',medName:'Dulox-30mg',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e293',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1100,prevStock:1120,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e294',date:'2026-07-19',medId:'m164',medName:'Histal Syp.',type:'out',qty:1,stockAfter:35,prevStock:36,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e295',date:'2026-07-19',medId:'m366',medName:'Xinc-B Syp',type:'out',qty:1,stockAfter:196,prevStock:197,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e296',date:'2026-07-19',medId:'m481',medName:'Orbas Plus-20/12.5mg Tab',type:'out',qty:10,stockAfter:200,prevStock:210,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e297',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1080,prevStock:1100,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e298',date:'2026-07-19',medId:'m271',medName:'Pregaba 25mg Tab.',type:'out',qty:20,stockAfter:280,prevStock:300,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e299',date:'2026-07-19',medId:'m251',medName:'Nurowel/TPC',type:'out',qty:20,stockAfter:1480,prevStock:1500,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e300',date:'2026-07-19',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:490,prevStock:500,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e301',date:'2026-07-19',medId:'m490',medName:'Precodil-10mg Tab',type:'out',qty:7,stockAfter:83,prevStock:90,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e302',date:'2026-07-19',medId:'m37',medName:'Beklo 10mg',type:'out',qty:14,stockAfter:258,prevStock:272,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e303',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1060,prevStock:1080,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e304',date:'2026-07-19',medId:'m568',medName:'Calamine Lotion',type:'out',qty:1,stockAfter:1,prevStock:2,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e305',date:'2026-07-19',medId:'m225',medName:'Napa-500',type:'out',qty:20,stockAfter:170,prevStock:190,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e306',date:'2026-07-19',medId:'m109',medName:'Doxiflo 200mg Tab.',type:'out',qty:10,stockAfter:516,prevStock:526,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e307',date:'2026-07-19',medId:'m173',medName:'Itra Nova 65mg',type:'out',qty:20,stockAfter:250,prevStock:270,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e308',date:'2026-07-19',medId:'m569',medName:'Ridon 10mg Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e309',date:'2026-07-19',medId:'m54',medName:'Boxol 100ml Syp.',type:'out',qty:1,stockAfter:37,prevStock:38,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e310',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1040,prevStock:1060,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e311',date:'2026-07-19',medId:'m416',medName:'Dermasol-N Ointment',type:'out',qty:1,stockAfter:2,prevStock:3,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e312',date:'2026-07-19',medId:'m386',medName:'Amlotab-5mg Tab',type:'out',qty:10,stockAfter:169,prevStock:179,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e313',date:'2026-07-19',medId:'m114',medName:'Ecosprin 75',type:'out',qty:14,stockAfter:240,prevStock:254,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e314',date:'2026-07-19',medId:'m309',medName:'Selomet 50mg Tab.',type:'out',qty:20,stockAfter:30,prevStock:50,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e315',date:'2026-07-19',medId:'m570',medName:'Rozavel 10mg Tab.',type:'out',qty:10,stockAfter:50,prevStock:60,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e316',date:'2026-07-19',medId:'m113',medName:'Ezylife 10mg Tab.',type:'out',qty:20,stockAfter:100,prevStock:120,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e317',date:'2026-07-19',medId:'m1',medName:'Avolac Syp.',type:'out',qty:1,stockAfter:1,prevStock:2,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e318',date:'2026-07-19',medId:'m482',medName:'Orbas-20mg Tab',type:'out',qty:20,stockAfter:300,prevStock:320,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e319',date:'2026-07-19',medId:'m173',medName:'Itra Nova 65mg',type:'out',qty:20,stockAfter:230,prevStock:250,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e320',date:'2026-07-19',medId:'m193',medName:'Lolitop Cream',type:'in',qty:10,stockAfter:8,prevStock:-2,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e321',date:'2026-07-19',medId:'m193',medName:'Lolitop Cream',type:'out',qty:1,stockAfter:7,prevStock:8,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e322',date:'2026-07-19',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:15,stockAfter:780,prevStock:795,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e323',date:'2026-07-19',medId:'m571',medName:'Nizoder 2% Shempo',type:'out',qty:1,stockAfter:2,prevStock:3,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e324',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1130,prevStock:1140,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e325',date:'2026-07-19',medId:'m251',medName:'Nurowel/TPC',type:'out',qty:20,stockAfter:1460,prevStock:1480,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e326',date:'2026-07-19',medId:'m352',medName:'Urokit plus syp',type:'out',qty:1,stockAfter:2,prevStock:3,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e327',date:'2026-07-19',medId:'m73',medName:'Cinaron Plus Tab.',type:'out',qty:16,stockAfter:140,prevStock:156,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e328',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1120,prevStock:1130,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e329',date:'2026-07-19',medId:'m286',medName:'Relentus 2mg Tab.',type:'out',qty:10,stockAfter:20,prevStock:30,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e330',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1020,prevStock:1040,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e331',date:'2026-07-19',medId:'m173',medName:'Itra Nova 65mg',type:'out',qty:20,stockAfter:210,prevStock:230,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e332',date:'2026-07-19',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:15,stockAfter:765,prevStock:780,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e333',date:'2026-07-19',medId:'m183',medName:'Limaryl 1mg',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e334',date:'2026-07-19',medId:'m84',medName:'Comet-500',type:'out',qty:20,stockAfter:150,prevStock:170,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e335',date:'2026-07-19',medId:'m426',medName:'E-CAP-400mg IU Cap',type:'out',qty:15,stockAfter:830,prevStock:845,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e336',date:'2026-07-19',medId:'m555',medName:'Montene 10mg',type:'out',qty:10,stockAfter:476,prevStock:486,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e337',date:'2026-07-19',medId:'m109',medName:'Doxiflo 200mg Tab.',type:'out',qty:20,stockAfter:496,prevStock:516,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e338',date:'2026-07-19',medId:'m228',medName:'Napro-A 250  Tab.',type:'out',qty:20,stockAfter:966,prevStock:986,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e339',date:'2026-07-19',medId:'m286',medName:'Relentus 2mg Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e340',date:'2026-07-19',medId:'m286',medName:'Relentus 2mg Tab.',type:'in',qty:120,stockAfter:120,prevStock:0,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e341',date:'2026-07-19',medId:'m37',medName:'Beklo 10mg',type:'out',qty:14,stockAfter:244,prevStock:258,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e342',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1110,prevStock:1120,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e343',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:1000,prevStock:1020,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e344',date:'2026-07-19',medId:'m338',medName:'Telmipres 80mg Tab.',type:'out',qty:10,stockAfter:10,prevStock:20,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e345',date:'2026-07-19',medId:'m125',medName:'Entacid plus syp.',type:'out',qty:1,stockAfter:8,prevStock:9,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e346',date:'2026-07-19',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:10,stockAfter:480,prevStock:490,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e347',date:'2026-07-19',medId:'m225',medName:'Napa-500',type:'out',qty:20,stockAfter:150,prevStock:170,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e348',date:'2026-07-19',medId:'m156',medName:'Gavisus DX Syp 200ml',type:'in',qty:20,stockAfter:20,prevStock:0,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e349',date:'2026-07-19',medId:'m156',medName:'Gavisus DX Syp 200ml',type:'out',qty:1,stockAfter:19,prevStock:20,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e350',date:'2026-07-19',medId:'m37',medName:'Beklo 10mg',type:'out',qty:14,stockAfter:230,prevStock:244,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e351',date:'2026-07-19',medId:'m86',medName:'Comprid 80mg tab.',type:'out',qty:10,stockAfter:520,prevStock:530,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e352',date:'2026-07-19',medId:'m552',medName:'Emlino 5/10 Tab.',type:'out',qty:10,stockAfter:55,prevStock:65,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e353',date:'2026-07-19',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'out',qty:10,stockAfter:35,prevStock:45,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e354',date:'2026-07-19',medId:'m125',medName:'Entacid plus syp.',type:'out',qty:1,stockAfter:7,prevStock:8,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e355',date:'2026-07-19',medId:'m555',medName:'Montene 10mg',type:'out',qty:10,stockAfter:466,prevStock:476,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e356',date:'2026-07-19',medId:'m54',medName:'Boxol 100ml Syp.',type:'out',qty:1,stockAfter:36,prevStock:37,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e357',date:'2026-07-19',medId:'m338',medName:'Telmipres 80mg Tab.',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e358',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1100,prevStock:1110,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e359',date:'2026-07-19',medId:'m286',medName:'Relentus 2mg Tab.',type:'out',qty:10,stockAfter:110,prevStock:120,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e360',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:980,prevStock:1000,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e361',date:'2026-07-19',medId:'m290',medName:'Renova Max',type:'out',qty:10,stockAfter:230,prevStock:240,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e362',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:960,prevStock:980,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e363',date:'2026-07-19',medId:'m173',medName:'Itra Nova 65mg',type:'out',qty:40,stockAfter:170,prevStock:210,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e364',date:'2026-07-19',medId:'m193',medName:'Lolitop Cream',type:'out',qty:1,stockAfter:6,prevStock:7,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e365',date:'2026-07-19',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:10,stockAfter:755,prevStock:765,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e366',date:'2026-07-19',medId:'m529',medName:'Tryptin-10mg Tab',type:'out',qty:10,stockAfter:340,prevStock:350,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e367',date:'2026-07-19',medId:'m571',medName:'Nizoder 2% Shempo',type:'out',qty:1,stockAfter:1,prevStock:2,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e368',date:'2026-07-19',medId:'m262',medName:'Paloxi 0.5mg',type:'in',qty:30,stockAfter:30,prevStock:0,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e369',date:'2026-07-19',medId:'m262',medName:'Paloxi 0.5mg',type:'out',qty:10,stockAfter:20,prevStock:30,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e370',date:'2026-07-19',medId:'m272',medName:'Pregaba 50mg Cap.',type:'out',qty:20,stockAfter:120,prevStock:140,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e371',date:'2026-07-19',medId:'m164',medName:'Histal Syp.',type:'out',qty:1,stockAfter:34,prevStock:35,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e372',date:'2026-07-19',medId:'m346',medName:'Togent Cream',type:'in',qty:9,stockAfter:6,prevStock:-3,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e373',date:'2026-07-19',medId:'m346',medName:'Togent Cream',type:'out',qty:1,stockAfter:5,prevStock:6,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e374',date:'2026-07-19',medId:'m535',medName:'Virux Cream',type:'out',qty:1,stockAfter:5,prevStock:6,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e375',date:'2026-07-19',medId:'m164',medName:'Histal Syp.',type:'out',qty:1,stockAfter:33,prevStock:34,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e376',date:'2026-07-19',medId:'m346',medName:'Togent Cream',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e377',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1090,prevStock:1100,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e378',date:'2026-07-19',medId:'m371',medName:'Zif CI Cap.',type:'out',qty:20,stockAfter:860,prevStock:880,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e379',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:940,prevStock:960,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e380',date:'2026-07-19',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:20,stockAfter:735,prevStock:755,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e381',date:'2026-07-19',medId:'m130',medName:'Facid BT Cream',type:'out',qty:1,stockAfter:7,prevStock:8,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e382',date:'2026-07-19',medId:'m568',medName:'Calamine Lotion',type:'out',qty:1,stockAfter:0,prevStock:1,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e383',date:'2026-07-19',medId:'m127',medName:'Esotid-20 Tab',type:'out',qty:14,stockAfter:770,prevStock:784,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e384',date:'2026-07-19',medId:'m228',medName:'Napro-A 250  Tab.',type:'out',qty:20,stockAfter:946,prevStock:966,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e385',date:'2026-07-19',medId:'m37',medName:'Beklo 10mg',type:'out',qty:20,stockAfter:210,prevStock:230,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e386',date:'2026-07-19',medId:'m286',medName:'Relentus 2mg Tab.',type:'out',qty:20,stockAfter:90,prevStock:110,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e387',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:20,stockAfter:1070,prevStock:1090,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e388',date:'2026-07-19',medId:'m255',medName:'Orbapin  5/20 mg Tab',type:'out',qty:10,stockAfter:290,prevStock:300,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e389',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:920,prevStock:940,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e390',date:'2026-07-19',medId:'m38',medName:'Benzit 10mg tab.',type:'out',qty:10,stockAfter:215,prevStock:225,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e391',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1060,prevStock:1070,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e392',date:'2026-07-19',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:10,stockAfter:725,prevStock:735,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e393',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:900,prevStock:920,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e394',date:'2026-07-19',medId:'m572',medName:'Valex CR 300mg',type:'in',qty:50,stockAfter:50,prevStock:0,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e395',date:'2026-07-19',medId:'m572',medName:'Valex CR 300mg',type:'out',qty:20,stockAfter:30,prevStock:50,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e396',date:'2026-07-19',medId:'m573',medName:'Pramin 25mg',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e397',date:'2026-07-19',medId:'m39',medName:'Betabis 2.5 mg',type:'out',qty:10,stockAfter:10,prevStock:20,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e398',date:'2026-07-19',medId:'m251',medName:'Nurowel/TPC',type:'out',qty:20,stockAfter:1440,prevStock:1460,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e399',date:'2026-07-19',medId:'m308',medName:'Seacoral Dx',type:'out',qty:10,stockAfter:1050,prevStock:1060,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e400',date:'2026-07-19',medId:'m258',medName:'ORS ACMES',type:'out',qty:5,stockAfter:195,prevStock:200,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e401',date:'2026-07-19',medId:'m472',medName:'Metryl-400mg Tab',type:'out',qty:15,stockAfter:39,prevStock:54,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e402',date:'2026-07-19',medId:'m173',medName:'Itra Nova 65mg',type:'out',qty:20,stockAfter:150,prevStock:170,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e403',date:'2026-07-19',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:10,stockAfter:715,prevStock:725,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e404',date:'2026-07-19',medId:'m193',medName:'Lolitop Cream',type:'out',qty:1,stockAfter:5,prevStock:6,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e405',date:'2026-07-19',medId:'m193',medName:'Lolitop Cream',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e406',date:'2026-07-19',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:10,stockAfter:705,prevStock:715,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e407',date:'2026-07-19',medId:'m123',medName:'Emolent Cream',type:'out',qty:1,stockAfter:10,prevStock:11,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e408',date:'2026-07-19',medId:'m173',medName:'Itra Nova 65mg',type:'out',qty:20,stockAfter:130,prevStock:150,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e409',date:'2026-07-19',medId:'m574',medName:'Emolia Cream',type:'out',qty:1,stockAfter:9,prevStock:10,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e410',date:'2026-07-19',medId:'m77',medName:'Clavucef-500mg Tab.',type:'out',qty:12,stockAfter:20,prevStock:32,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e411',date:'2026-07-19',medId:'m497',medName:'Rolac 10mg Tab',type:'out',qty:4,stockAfter:90,prevStock:94,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e412',date:'2026-07-19',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:20,stockAfter:880,prevStock:900,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e413',date:'2026-07-19',medId:'m203',medName:'Maxrin D/Uromax D',type:'out',qty:10,stockAfter:230,prevStock:240,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e414',date:'2026-07-19',medId:'m555',medName:'Montene 10mg',type:'out',qty:10,stockAfter:456,prevStock:466,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e415',date:'2026-07-19',medId:'m109',medName:'Doxiflo 200mg Tab.',type:'out',qty:20,stockAfter:476,prevStock:496,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e416',date:'2026-07-19',medId:'m94',medName:'D-Cough Syp.',type:'out',qty:1,stockAfter:18,prevStock:19,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e417',date:'2026-07-19',medId:'m291',medName:'Renova XR Tab.',type:'out',qty:10,stockAfter:247,prevStock:257,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e418',date:'2026-07-19',medId:'m341',medName:'Thyrin 50mg Tab.',type:'out',qty:15,stockAfter:75,prevStock:90,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e419',date:'2026-07-19',medId:'m424',medName:'Duralax-5mg Tab',type:'out',qty:20,stockAfter:170,prevStock:190,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e420',date:'2026-07-19',medId:'m37',medName:'Beklo 10mg',type:'out',qty:8,stockAfter:202,prevStock:210,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e421',date:'2026-07-19',medId:'m103',medName:'Diclofen Gel',type:'out',qty:1,stockAfter:3,prevStock:4,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e422',date:'2026-07-19',medId:'m442',medName:'Famotack-20mg Tab',type:'out',qty:10,stockAfter:19,prevStock:29,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e423',date:'2026-07-19',medId:'m125',medName:'Entacid plus syp.',type:'in',qty:10,stockAfter:17,prevStock:7,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e424',date:'2026-07-19',medId:'m50',medName:'Bexitrol F 50/250',type:'in',qty:120,stockAfter:150,prevStock:30,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e425',date:'2026-07-19',medId:'m49',medName:'Bexitrol F 50/500',type:'in',qty:60,stockAfter:150,prevStock:90,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e426',date:'2026-07-19',medId:'m303',medName:'Sabitar 50mg',type:'in',qty:60,stockAfter:90,prevStock:30,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e427',date:'2026-07-19',medId:'m80',medName:'Clopid 75mg Tab.',type:'in',qty:56,stockAfter:90,prevStock:34,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e428',date:'2026-07-19',medId:'m54',medName:'Boxol 100ml Syp.',type:'out',qty:6,stockAfter:30,prevStock:36,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e429',date:'2026-07-19',medId:'m41',medName:'Betabis 5mg',type:'in',qty:60,stockAfter:70,prevStock:10,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e430',date:'2026-07-19',medId:'m338',medName:'Telmipres 80mg Tab.',type:'in',qty:60,stockAfter:60,prevStock:0,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e431',date:'2026-07-19',medId:'m286',medName:'Relentus 2mg Tab.',type:'in',qty:120,stockAfter:210,prevStock:90,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e432',date:'2026-07-19',medId:'m97',medName:'Delcyst 500mg',type:'in',qty:10,stockAfter:0,prevStock:-10,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e433',date:'2026-07-19',medId:'m97',medName:'Delcyst 500mg',type:'in',qty:10,stockAfter:10,prevStock:0,createdAt:'2026-07-19T12:00:00.000Z'},
+{id:'e434',date:'2026-07-20',medId:'m16',medName:'Ambrox 100ml Syp',type:'out',qty:1,stockAfter:8,prevStock:9,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e435',date:'2026-07-20',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'in',qty:20,stockAfter:35,prevStock:15,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e436',date:'2026-07-20',medId:'m53',medName:'Bizoran 5/40 mg Tab.',type:'out',qty:20,stockAfter:15,prevStock:35,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e437',date:'2026-07-20',medId:'m96',medName:'Defrol 40000 Tab.',type:'in',qty:3,stockAfter:3,prevStock:0,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e438',date:'2026-07-20',medId:'m96',medName:'Defrol 40000 Tab.',type:'out',qty:3,stockAfter:0,prevStock:3,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e439',date:'2026-07-20',medId:'m107',medName:'Domin 10mg Tab.',type:'out',qty:30,stockAfter:210,prevStock:240,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e440',date:'2026-07-20',medId:'m130',medName:'Facid BT Cream',type:'out',qty:1,stockAfter:6,prevStock:7,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e441',date:'2026-07-20',medId:'m134',medName:'Fexo 120mg Tab.',type:'out',qty:15,stockAfter:435,prevStock:450,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e442',date:'2026-07-20',medId:'m143',medName:'Flucloxin Syp.',type:'out',qty:2,stockAfter:2,prevStock:4,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e443',date:'2026-07-20',medId:'m190',medName:'Liptor-10mg Tab.',type:'out',qty:20,stockAfter:190,prevStock:210,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e444',date:'2026-07-20',medId:'m222',medName:'Mupiron Ointment',type:'out',qty:1,stockAfter:4,prevStock:5,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e445',date:'2026-07-20',medId:'m223',medName:'Nabumet 500mg Tab.',type:'out',qty:20,stockAfter:20,prevStock:40,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e446',date:'2026-07-20',medId:'m358',medName:'Vergon 5mg Tab.',type:'out',qty:20,stockAfter:265,prevStock:285,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e447',date:'2026-07-20',medId:'m567',medName:'Zisup 20mg Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e448',date:'2026-07-20',medId:'m371',medName:'Zif CI Cap.',type:'out',qty:30,stockAfter:830,prevStock:860,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e449',date:'2026-07-20',medId:'m37',medName:'Beklo 10mg',type:'out',qty:48,stockAfter:146,prevStock:194,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e450',date:'2026-07-20',medId:'m38',medName:'Benzit 10mg tab.',type:'out',qty:40,stockAfter:175,prevStock:215,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e451',date:'2026-07-20',medId:'m40',medName:'Betabis 2.5/Bislol',type:'in',qty:60,stockAfter:40,prevStock:-20,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e452',date:'2026-07-20',medId:'m40',medName:'Betabis 2.5/Bislol',type:'out',qty:10,stockAfter:30,prevStock:40,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e453',date:'2026-07-20',medId:'m51',medName:'Bilfast-20mg Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e454',date:'2026-07-20',medId:'m86',medName:'Comprid 80mg tab.',type:'out',qty:20,stockAfter:500,prevStock:520,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e455',date:'2026-07-20',medId:'m139',medName:'Finix 20mg Tab',type:'out',qty:340,stockAfter:540,prevStock:880,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e456',date:'2026-07-20',medId:'m145',medName:'Flugal-150mg',type:'out',qty:4,stockAfter:0,prevStock:4,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e457',date:'2026-07-20',medId:'m155',medName:'Gavisol Syp',type:'out',qty:1,stockAfter:1,prevStock:2,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e458',date:'2026-07-20',medId:'m164',medName:'Histal Syp.',type:'out',qty:1,stockAfter:32,prevStock:33,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e459',date:'2026-07-20',medId:'m164',medName:'Histal Syp.',type:'out',qty:5,stockAfter:27,prevStock:32,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e460',date:'2026-07-20',medId:'m187',medName:'Linita-5/lino-5',type:'out',qty:20,stockAfter:270,prevStock:290,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e461',date:'2026-07-20',medId:'m209',medName:'Micosina Oral Gel',type:'out',qty:1,stockAfter:1,prevStock:2,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e462',date:'2026-07-20',medId:'m555',medName:'Montene 10mg',type:'out',qty:70,stockAfter:386,prevStock:456,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e463',date:'2026-07-20',medId:'m225',medName:'Napa-500',type:'out',qty:30,stockAfter:120,prevStock:150,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e464',date:'2026-07-20',medId:'m289',medName:'Renova 60ml Syp.',type:'out',qty:4,stockAfter:16,prevStock:20,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e465',date:'2026-07-20',medId:'m291',medName:'Renova XR Tab.',type:'out',qty:10,stockAfter:237,prevStock:247,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e466',date:'2026-07-20',medId:'m305',medName:'Salazine-500mg',type:'out',qty:20,stockAfter:330,prevStock:350,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e467',date:'2026-07-20',medId:'m311',medName:'Sergel-40mg',type:'out',qty:20,stockAfter:60,prevStock:80,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e468',date:'2026-07-20',medId:'m346',medName:'Togent Cream',type:'out',qty:3,stockAfter:1,prevStock:4,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e469',date:'2026-07-20',medId:'m367',medName:'Xyril 10mg Tab.',type:'out',qty:10,stockAfter:675,prevStock:685,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e470',date:'2026-07-20',medId:'m63',medName:'Ceftid 50ml Syrup',type:'out',qty:2,stockAfter:26,prevStock:28,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e471',date:'2026-07-20',medId:'m449',medName:'Flucoder-Syp',type:'in',qty:1,stockAfter:10,prevStock:9,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e472',date:'2026-07-20',medId:'m449',medName:'Flucoder-Syp',type:'out',qty:1,stockAfter:9,prevStock:10,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e473',date:'2026-07-20',medId:'m473',medName:'Myolax-50mg Tab',type:'out',qty:30,stockAfter:40,prevStock:70,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e474',date:'2026-07-20',medId:'m255',medName:'Orbapin  5/20 mg Tab',type:'out',qty:30,stockAfter:260,prevStock:290,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e475',date:'2026-07-20',medId:'m215',medName:'Miraba-5mg /Merolin',type:'out',qty:40,stockAfter:160,prevStock:200,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e476',date:'2026-07-20',medId:'m166',medName:'Indever-20mg',type:'out',qty:30,stockAfter:40,prevStock:70,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e477',date:'2026-07-20',medId:'m113',medName:'Ezylife 10mg Tab.',type:'out',qty:20,stockAfter:80,prevStock:100,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e478',date:'2026-07-20',medId:'m251',medName:'Nurowel/TPC',type:'out',qty:180,stockAfter:1260,prevStock:1440,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e479',date:'2026-07-20',medId:'m490',medName:'Precodil-10mg Tab',type:'out',qty:10,stockAfter:73,prevStock:83,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e480',date:'2026-07-20',medId:'m231',medName:'Napro-A 500',type:'out',qty:12,stockAfter:272,prevStock:284,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e481',date:'2026-07-20',medId:'m246',medName:'Nomi 2.5mg',type:'out',qty:1,stockAfter:121,prevStock:122,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e482',date:'2026-07-20',medId:'m271',medName:'Pregaba 25mg Tab.',type:'out',qty:42,stockAfter:238,prevStock:280,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e483',date:'2026-07-20',medId:'m333',medName:'Telisa-A 5/40',type:'in',qty:10,stockAfter:10,prevStock:0,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e484',date:'2026-07-20',medId:'m333',medName:'Telisa-A 5/40',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e485',date:'2026-07-20',medId:'m338',medName:'Telmipres 80mg Tab.',type:'out',qty:20,stockAfter:40,prevStock:60,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e486',date:'2026-07-20',medId:'m41',medName:'Betabis 5mg',type:'out',qty:10,stockAfter:60,prevStock:70,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e487',date:'2026-07-20',medId:'m308',medName:'Seacoral Dx',type:'out',qty:150,stockAfter:900,prevStock:1050,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e488',date:'2026-07-20',medId:'m106',medName:'Dulox 30mg Tab',type:'in',qty:60,stockAfter:60,prevStock:0,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e489',date:'2026-07-20',medId:'m106',medName:'Dulox 30mg Tab',type:'out',qty:25,stockAfter:35,prevStock:60,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e490',date:'2026-07-20',medId:'m258',medName:'ORS ACMES',type:'out',qty:10,stockAfter:185,prevStock:195,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e491',date:'2026-07-20',medId:'m118',medName:'Ediloss 40/50 Tab.',type:'out',qty:20,stockAfter:0,prevStock:20,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e492',date:'2026-07-20',medId:'m303',medName:'Sabitar 50mg',type:'out',qty:30,stockAfter:60,prevStock:90,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e493',date:'2026-07-20',medId:'m482',medName:'Orbas-20mg Tab',type:'out',qty:10,stockAfter:290,prevStock:300,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e494',date:'2026-07-20',medId:'m349',medName:'Trangina -MR',type:'out',qty:40,stockAfter:250,prevStock:290,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e495',date:'2026-07-20',medId:'m23',medName:'Anril SR 2.6 mg/GTN 2.6',type:'out',qty:40,stockAfter:160,prevStock:200,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e496',date:'2026-07-20',medId:'m336',medName:'Telmidip 10/80 mg Tab.',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e497',date:'2026-07-20',medId:'m71',medName:'Cildip 10mg',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e498',date:'2026-07-20',medId:'m444',medName:'Fexo DO-60mg Tab',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e499',date:'2026-07-20',medId:'m94',medName:'D-Cough Syp.',type:'out',qty:1,stockAfter:17,prevStock:18,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e500',date:'2026-07-20',medId:'m264',medName:'Pase 0.5 mg',type:'out',qty:10,stockAfter:748,prevStock:758,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e501',date:'2026-07-20',medId:'m84',medName:'Comet-500',type:'out',qty:20,stockAfter:130,prevStock:150,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e502',date:'2026-07-20',medId:'m532',medName:'Ucol 2mg Tab',type:'out',qty:10,stockAfter:0,prevStock:10,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e503',date:'2026-07-20',medId:'m8',medName:'Afun Cream 10gm',type:'in',qty:1,stockAfter:1,prevStock:0,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e504',date:'2026-07-20',medId:'m8',medName:'Afun Cream 10gm',type:'out',qty:1,stockAfter:0,prevStock:1,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e505',date:'2026-07-20',medId:'m160',medName:'Gynomix',type:'out',qty:6,stockAfter:6,prevStock:12,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e506',date:'2026-07-20',medId:'m578',medName:'Albendazole-400mg',type:'out',qty:2,stockAfter:18,prevStock:20,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e507',date:'2026-07-20',medId:'m228',medName:'Napro-A 250  Tab.',type:'out',qty:24,stockAfter:922,prevStock:946,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e508',date:'2026-07-20',medId:'m352',medName:'Urokit plus syp',type:'out',qty:1,stockAfter:1,prevStock:2,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e509',date:'2026-07-20',medId:'m127',medName:'Esotid-20 Tab',type:'out',qty:14,stockAfter:756,prevStock:770,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e510',date:'2026-07-20',medId:'m361',medName:'Visral-50 Tab',type:'out',qty:20,stockAfter:320,prevStock:340,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e511',date:'2026-07-20',medId:'m579',medName:'Clavacef-250mg',type:'out',qty:10,stockAfter:40,prevStock:50,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e512',date:'2026-07-20',medId:'m68',medName:'Centoxin- 0.25mg',type:'out',qty:10,stockAfter:50,prevStock:60,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e513',date:'2026-07-20',medId:'m401',medName:'Cardizem-30mg Tab',type:'out',qty:14,stockAfter:0,prevStock:14,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e514',date:'2026-07-20',medId:'m172',medName:'Itopride 50mg',type:'in',qty:60,stockAfter:60,prevStock:0,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e515',date:'2026-07-20',medId:'m172',medName:'Itopride 50mg',type:'out',qty:20,stockAfter:40,prevStock:60,createdAt:'2026-07-20T12:00:00.000Z'},
+{id:'e516',date:'2026-07-20',medId:'m344',medName:'Tofacit XR',type:'out',qty:10,stockAfter:66,prevStock:76,createdAt:'2026-07-20T12:00:00.000Z'}
+];
+
+const RECENT_SEED = ['m344','m172','m401','m68','m579','m361','m127','m352','m228','m578','m160','m8','m532','m84','m264','m94','m444','m71','m336','m23'];
+const LAST_ENTRY_SEED = 'e516';
+
+const ICON_SEARCH = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>`;
+const ICON_CLOSE_MD = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
+const ICON_SUN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
+const ICON_MOON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>`;
+const ICON_EXPORT = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"/></svg>`;
+const ICON_WARN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>`;
+const ICON_CHECK = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M20 6L9 17l-5-5"/></svg>`;
+const ICON_EDIT = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+const ICON_TRASH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`;
+const ICON_CHEVRON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg>`;
+const LOGO_SVG = `<svg width="30" height="30" viewBox="0 0 32 32" fill="none" style="flex-shrink:0"><rect width="32" height="32" rx="9" fill="#134E36"/><path d="M16 9v14M9 16h14" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round"/></svg>`;
+
+const STORAGE_KEY = 'pmc_stock_register_v2';
+// Shared-storage backend: Supabase (Postgres + built-in browser API).
+// SUPABASE_KEY is the "publishable/anon" key — safe to ship in client code,
+// it only allows what the RLS policies on the app_state table permit.
+const SUPABASE_URL = 'https://kacxrmmvusoindisfuao.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_UVbXENhINIzIgSRoxtFtGA_MBJctYvo';
+let sbClient = null;
+try{
+  if(typeof supabase !== 'undefined') sbClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+}catch(e){ sbClient = null; } // CDN script blocked/offline: app still runs fully from localStorage
+
+function esc(v){
+  return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function normalize(s){ return (s||'').toLowerCase().replace(/[.\-\/\s]/g,''); }
+function toBn(str){ return String(str).replace(/[0-9]/g, d=>BN_DIGITS[d]); }
+function fmtNum(n, lang){ const s=String(n); return lang==='bn'? toBn(s) : s; }
+function fmtDate(iso, lang){
+  const [y,m,d] = iso.split('-');
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const disp = `${parseInt(d,10)} ${months[parseInt(m,10)-1]} ${y}`;
+  return lang==='bn'? toBn(disp) : disp;
+}
+function todayISO(){
+  const d = new Date();
+  const p = x=>String(x).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function fmtTime(iso, lang){
+  if(!iso) return '';
+  const d = new Date(iso);
+  let h = d.getHours(); const m = d.getMinutes();
+  const ampm = h>=12 ? 'PM' : 'AM';
+  h = h%12; if(h===0) h=12;
+  const disp = `${h}:${String(m).padStart(2,'0')} ${ampm}`;
+  return lang==='bn' ? toBn(disp) : disp;
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const saved = JSON.parse(raw);
+      if(saved && Array.isArray(saved.medicines)){
+        return {
+          medicines: saved.medicines,
+          entries: Array.isArray(saved.entries) ? saved.entries : [],
+          recentMedIds: Array.isArray(saved.recentMedIds) ? saved.recentMedIds : [],
+          lastEntryId: saved.lastEntryId || null,
+          lang: saved.lang === 'bn' ? 'bn' : 'en',
+          dark: !!saved.dark,
+          activityLog: Array.isArray(saved.activityLog) ? saved.activityLog : [],
+        };
+      }
+    }
+  }catch(e){}
+  return {
+    medicines: MEDICINES_SEED.map(m=>({...m})),
+    entries: ENTRIES_SEED.map(e=>({...e})),
+    recentMedIds: [...RECENT_SEED], lastEntryId: LAST_ENTRY_SEED,
+    lang:'en', dark:false, activityLog: [],
+  };
+}
+function persist(){
+  const payload = {
+    medicines: state.medicines, entries: state.entries, recentMedIds: state.recentMedIds,
+    lastEntryId: state.lastEntryId, lang: state.lang, dark: state.dark, activityLog: state.activityLog,
+  };
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(payload)); }catch(e){}
+  if(!sbClient) return; // no network/CDN at all: localStorage write above already happened
+  sbClient.from('app_state').update({ data: payload }).eq('id', 1)
+    .then(()=>{}, ()=>{});
+}
+function syncFromServer(){
+  if(!sbClient) return; // no network/CDN at all: keep whatever loadState() already put on screen
+  sbClient.from('app_state').select('data').eq('id', 1).single()
+    .then(({ data, error }) => {
+      const saved = !error && data ? data.data : null;
+      if(saved && Array.isArray(saved.medicines)){
+        state.medicines = saved.medicines;
+        state.entries = Array.isArray(saved.entries) ? saved.entries : [];
+        state.recentMedIds = Array.isArray(saved.recentMedIds) ? saved.recentMedIds : [];
+        state.lastEntryId = saved.lastEntryId || null;
+        state.lang = saved.lang === 'bn' ? 'bn' : state.lang;
+        state.dark = typeof saved.dark === 'boolean' ? saved.dark : state.dark;
+        state.activityLog = Array.isArray(saved.activityLog) ? saved.activityLog : [];
+        try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); }catch(e){}
+        render();
+      } else if(!error && (!data || !data.data)){
+        persist(); // server row is empty: push this device's current/seed state as the shared copy
+      }
+    }, ()=>{}); // offline: keep whatever loadState() already put on screen
+}
+
+const app = document.getElementById('app');
+let state = Object.assign({
+  tab:'entry', isLoading:true, query:'', showAllList:false,
+  sheet:null, sheetMedId:null, entryType:'out', qtyStr:'', dateStr:'',
+  addName:'', addStockStr:'', addError:'', dayFilter:'', toast:null,
+  dayDrill:null, dateOverrides:{},
+  editSheet:null, editMedId:null, editEntryId:null,
+  editNameStr:'', editStockStr:'', editQtyStr:'', editTypeStr:'out', editDateStr:'', editError:'',
+}, loadState());
+
+let pendingFocus = null; // CSS selector to focus after the next render, overriding auto-restore
+let focusStack = []; // stack of selectors for elements that opened nested modals; popped on close
+function focusSelectorFor(el){
+  if(!el || !el.dataset) return null;
+  if(el.dataset.field) return `[data-field="${el.dataset.field}"]`;
+  if(el.dataset.action){
+    return el.dataset.id != null
+      ? `[data-action="${el.dataset.action}"][data-id="${el.dataset.id}"]`
+      : `[data-action="${el.dataset.action}"]`;
+  }
+  return null;
+}
+
+let toastTimer = null;
+function setToast(msg, negative){
+  clearTimeout(toastTimer);
+  state.toast = {msg, negative};
+  toastTimer = setTimeout(()=>{ state.toast = null; render(); }, 2600);
+}
+
+function isModalOpen(){ return !!(state.sheet || state.dayDrill || state.editSheet); }
+
+const EDIT_WINDOW_MS = 24*60*60*1000;
+function isEditableEntry(e){
+  return !!e.createdAt && (Date.now() - new Date(e.createdAt).getTime()) < EDIT_WINDOW_MS;
+}
+
+function logActivity(summary){
+  state.activityLog.push({ id:'a'+Date.now()+'_'+Math.random().toString(36).slice(2,7), ts:new Date().toISOString(), summary });
+  if(state.activityLog.length > 2000) state.activityLog = state.activityLog.slice(-2000);
+}
+
+// Recomputes prevStock/stockAfter for every entry of a medicine, in original creation order,
+// anchored to the first entry's prevStock; updates the medicine's current stock to the final total.
+function recalcMedicineChain(medId){
+  const list = state.entries.filter(e=>e.medId===medId);
+  if(!list.length) return;
+  let running = list[0].prevStock;
+  list.forEach(e=>{
+    e.prevStock = running;
+    running = e.type==='in' ? running+e.qty : running-e.qty;
+    e.stockAfter = running;
+  });
+  const med = state.medicines.find(m=>m.id===medId);
+  if(med) med.stock = running;
+}
+
+// Simulates the chain for a medicine with one entry's qty/type overridden, without mutating state.
+// Returns the final stock and the minimum stock reached at any point in the chain.
+function simulateChain(medId, overrideEntryId, overrideQty, overrideType){
+  const list = state.entries.filter(e=>e.medId===medId);
+  let running = list.length ? list[0].prevStock : 0;
+  let minStock = Infinity;
+  list.forEach(e=>{
+    const qty = e.id===overrideEntryId ? overrideQty : e.qty;
+    const type = e.id===overrideEntryId ? overrideType : e.type;
+    running = type==='in' ? running+qty : running-qty;
+    if(running < minStock) minStock = running;
+  });
+  if(minStock === Infinity) minStock = running;
+  return { finalStock: running, minStock };
+}
+
+function decorate(m, C, L, lang){
+  const isLow = m.stock < LOW_STOCK_THRESHOLD;
+  const colors = isLow ? {bg:C.negativeBg,text:C.negativeText} : {bg:C.positiveBg,text:C.positiveText};
+  return {
+    id:m.id, name:m.name,
+    stockDisplay: fmtNum(m.stock, lang),
+    usageDisplay: L.usage(fmtNum(m.usage, lang)),
+    badgeBg: colors.bg, badgeText: colors.text,
+  };
+}
+
+function computeVM(){
+  const { medicines, entries, query, showAllList, tab, dark, lang, sheet, sheetMedId, entryType, qtyStr, dateStr,
+    addName, addStockStr, addError, dayFilter, toast, recentMedIds, dayDrill,
+    editSheet, editMedId, editEntryId, editNameStr, editStockStr, editQtyStr, editTypeStr, editDateStr, editError } = state;
+  const C = dark ? DARK : LIGHT;
+  const L = TRANSLATIONS[lang];
+  const today = todayISO();
+  const hasQuery = query.trim().length > 0;
+  const nq = normalize(query);
+  const sortedAll = medicines.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const searchResults = hasQuery ? sortedAll.filter(m=>normalize(m.name).includes(nq)) : [];
+  const mainSource = hasQuery ? searchResults : sortedAll;
+  const visibleMain = hasQuery ? mainSource : (showAllList ? mainSource : mainSource.slice(0,40));
+  const mainRows = visibleMain.map(m=>decorate(m,C,L,lang));
+
+  const recentSource = hasQuery ? [] : recentMedIds.map(id=>medicines.find(m=>m.id===id)).filter(Boolean).slice(0,20);
+  const recentRows = recentSource.map(m=>decorate(m,C,L,lang));
+
+  const noResults = hasQuery && searchResults.length===0;
+  const hasRecent = !hasQuery && recentRows.length>0;
+  const hasMainRows = mainRows.length>0;
+  const showToggleBtn = !hasQuery && mainSource.length>40;
+  const listHeading = hasQuery ? L.results(fmtNum(searchResults.length,lang)) : L.allMeds;
+  const toggleBtnLabel = showAllList ? L.showLess : L.showRemaining(fmtNum(Math.max(0,mainSource.length-40),lang));
+
+  // Daily serial numbers: 1-based, per date, in original creation order (across all medicines).
+  const serialByEntryId = {};
+  {
+    const byDate = {};
+    entries.forEach(e=>{ (byDate[e.date] = byDate[e.date]||[]).push(e); });
+    Object.keys(byDate).forEach(d=>{ byDate[d].forEach((e,idx)=>{ serialByEntryId[e.id] = idx+1; }); });
+  }
+
+  const lastEntry = entries.find(e=>e.id===state.lastEntryId);
+
+  const filteredEntries = dayFilter ? entries.filter(e=>e.date===dayFilter) : entries;
+  const groupsMap = {};
+  filteredEntries.forEach(e=>{ (groupsMap[e.date] = groupsMap[e.date]||[]).push(e); });
+  const dayGroupsRaw = Object.keys(groupsMap).sort((a,b)=>b.localeCompare(a)).map(date=>{
+    const rawList = groupsMap[date].slice().reverse(); // newest first
+    const totalIn = rawList.filter(e=>e.type==='in').reduce((s,e)=>s+e.qty,0);
+    const totalOut = rawList.filter(e=>e.type==='out').reduce((s,e)=>s+e.qty,0);
+
+    const byMed = {};
+    const order = [];
+    rawList.forEach(e=>{
+      let g = byMed[e.medId];
+      if(!g){
+        g = { medId:e.medId, medName:e.medName, totalIn:0, totalOut:0, stockAfter:e.stockAfter, count:0 };
+        byMed[e.medId] = g;
+        order.push(e.medId);
+      }
+      if(e.type==='in') g.totalIn += e.qty; else g.totalOut += e.qty;
+      g.count += 1;
+    });
+
+    const rows = order.map(medId=>{
+      const g = byMed[medId];
+      const parts = [];
+      if(g.totalIn>0) parts.push('+'+fmtNum(g.totalIn,lang));
+      if(g.totalOut>0) parts.push('−'+fmtNum(g.totalOut,lang));
+      return {
+        medId: g.medId, medName: g.medName,
+        qtyDisplay: parts.join(' / '),
+        stockAfterDisplay: fmtNum(g.stockAfter,lang),
+        psColor: g.stockAfter<0 ? C.negativeText : C.textMuted,
+        isLast: !!lastEntry && lastEntry.date===date && lastEntry.medId===medId,
+        countDisplay: L.entryCountShort(fmtNum(g.count,lang)),
+        drillId: date+'__'+medId,
+      };
+    });
+
+    return {
+      date, dateDisplay: fmtDate(date, lang),
+      totalIn: fmtNum(totalIn,lang), totalOut: fmtNum(totalOut,lang), count: fmtNum(rawList.length,lang),
+      rows,
+    };
+  });
+  const mostRecentDate = dayGroupsRaw.length ? dayGroupsRaw[0].date : null;
+  const dayGroups = dayGroupsRaw.map(grp=>({
+    ...grp,
+    expanded: (grp.date in state.dateOverrides) ? state.dateOverrides[grp.date] : (grp.date === mostRecentDate),
+  }));
+  const daybookEmpty = dayGroups.length===0;
+
+  // Drill-down: individual raw entries for one date+medicine.
+  let dayDrillTitle = '', dayDrillRows = [];
+  if(dayDrill){
+    const med = medicines.find(m=>m.id===dayDrill.medId);
+    dayDrillTitle = (med ? med.name : '') + ' · ' + fmtDate(dayDrill.date, lang);
+    const list = entries.filter(e=>e.date===dayDrill.date && e.medId===dayDrill.medId);
+    dayDrillRows = list.slice().reverse().map(e=>({
+      id: e.id,
+      serialDisplay: '#'+fmtNum(serialByEntryId[e.id],lang),
+      typeLabel: e.type==='in' ? L.in : L.out,
+      qtyDisplay: (e.type==='in'?'+':'−')+fmtNum(e.qty,lang),
+      stockAfterDisplay: fmtNum(e.stockAfter,lang),
+      timeDisplay: fmtTime(e.createdAt, lang),
+      signColor: e.type==='in' ? C.positiveText : C.text,
+      editable: isEditableEntry(e),
+    }));
+  }
+
+  // Entry sheet (In/Out save).
+  let sheetMedName='', sheetCurrentStockDisplay='', sheetStockColor='', warnVisible=false, warnText='', showPreview=false, previewText='', saveDisabled=true;
+  if(sheet==='entry' && sheetMedId){
+    const med = medicines.find(m=>m.id===sheetMedId);
+    if(med){
+      const qtyNum = parseInt(qtyStr,10)||0;
+      const newStock = entryType==='in' ? med.stock+qtyNum : med.stock-qtyNum;
+      const isFutureDate = dateStr > today;
+      const wouldGoNegative = qtyNum>0 && newStock<0;
+      sheetMedName = med.name;
+      sheetCurrentStockDisplay = fmtNum(med.stock,lang);
+      sheetStockColor = med.stock<=0 ? C.negativeText : C.positiveText;
+      warnVisible = isFutureDate || wouldGoNegative;
+      warnText = isFutureDate ? L.futureDateError : (wouldGoNegative ? L.negativeBlockError(fmtNum(newStock,lang)) : '');
+      showPreview = qtyNum>0 && !warnVisible;
+      previewText = L.newStockPreview(fmtNum(newStock,lang));
+      saveDisabled = qtyNum<=0 || isFutureDate || wouldGoNegative;
+    }
+  }
+
+  const outSelected = entryType==='out';
+  const outBg = outSelected ? C.primary : C.surfaceAlt;
+  const outText = outSelected ? C.selectedText : C.text;
+  const outBorder = outSelected ? C.primary : C.border;
+  const inBg = !outSelected ? C.primary : C.surfaceAlt;
+  const inText = !outSelected ? C.selectedText : C.text;
+  const inBorder = !outSelected ? C.primary : C.border;
+  const saveBtnBg = saveDisabled ? C.border : C.primary;
+  const saveBtnColor = saveDisabled ? C.textMuted : C.selectedText;
+
+  // Edit-medicine form.
+  let editMedName = '', editMedSaveDisabled = true;
+  if(editSheet==='medicine' && editMedId){
+    editMedName = (medicines.find(m=>m.id===editMedId) || {}).name || '';
+    editMedSaveDisabled = editNameStr.trim()==='';
+  }
+
+  // Edit-entry form.
+  let editEntryMedName = '', editEntrySaveDisabled = true, editEntryWarnVisible = false, editEntryWarnText = '', editEntryPreview = '';
+  if(editSheet==='entry' && editEntryId){
+    const e = entries.find(x=>x.id===editEntryId);
+    if(e){
+      editEntryMedName = e.medName;
+      const qtyNum = parseInt(editQtyStr,10)||0;
+      const isFutureDate = editDateStr > today;
+      const sim = simulateChain(e.medId, editEntryId, qtyNum, editTypeStr);
+      const wouldGoNegative = qtyNum>0 && sim.minStock<0;
+      editEntryWarnVisible = isFutureDate || wouldGoNegative;
+      editEntryWarnText = isFutureDate ? L.futureDateError : (wouldGoNegative ? L.negativeBlockError(fmtNum(sim.finalStock,lang)) : '');
+      editEntryPreview = (!editEntryWarnVisible && qtyNum>0) ? L.newStockPreview(fmtNum(sim.finalStock,lang)) : '';
+      editEntrySaveDisabled = qtyNum<=0 || isFutureDate || wouldGoNegative;
+    }
+  }
+  const editOutSelected = editTypeStr==='out';
+  const editOutBg = editOutSelected ? C.primary : C.surfaceAlt;
+  const editOutText = editOutSelected ? C.selectedText : C.text;
+  const editOutBorder = editOutSelected ? C.primary : C.border;
+  const editInBg = !editOutSelected ? C.primary : C.surfaceAlt;
+  const editInText = !editOutSelected ? C.selectedText : C.text;
+  const editInBorder = !editOutSelected ? C.primary : C.border;
+
+  // Activity log tab.
+  const logRows = state.activityLog.slice().reverse().map(a=>({
+    id: a.id, summary: a.summary,
+    whenDisplay: fmtDate(a.ts.slice(0,10), lang) + ' · ' + fmtTime(a.ts, lang),
+  }));
+  const logEmpty = logRows.length===0;
+
+  const toastVisible = !!toast;
+  const toastMsg = toast ? toast.msg : '';
+  const toastBg = toast && toast.negative ? '#B23A2E' : '#1F7A44';
+  const toastColor = '#ffffff';
+
+  const isEntryTab = tab==='entry';
+  const isDaybookTab = tab==='daybook';
+  const isLogTab = tab==='log';
+  const entryTabBg = isEntryTab ? C.pageBg : 'transparent';
+  const entryTabColor = isEntryTab ? C.primary : C.headerMuted;
+  const daybookTabBg = isDaybookTab ? C.pageBg : 'transparent';
+  const daybookTabColor = isDaybookTab ? C.primary : C.headerMuted;
+  const logTabBg = isLogTab ? C.pageBg : 'transparent';
+  const logTabColor = isLogTab ? C.primary : C.headerMuted;
+
+  return {
+    C, L, dark, lang,
+    langLabel: lang==='en' ? 'বাংলা' : 'EN',
+    todayDisplay: fmtDate(today, lang), todayISO: today,
+    totalCountDisplay: fmtNum(medicines.length, lang),
+    daybookCountDisplay: fmtNum(entries.length, lang),
+    logCountDisplay: fmtNum(state.activityLog.length, lang),
+    isEntryTab, isDaybookTab, isLogTab, entryTabBg, entryTabColor, daybookTabBg, daybookTabColor, logTabBg, logTabColor,
+    query, hasQuery,
+    hasRecent, recentRows,
+    listHeading, noResults, noResultsText: L.noResults(query),
+    hasMainRows, mainRows, showToggleBtn, toggleBtnLabel,
+    dayFilter, hasDayFilter: !!dayFilter,
+    daybookEmpty, dayGroups,
+    dayDrillOpen: !!dayDrill, dayDrillTitle, dayDrillRows,
+    sheetEntryOpen: sheet==='entry' && !editSheet, sheetAddOpen: sheet==='add' && !editSheet,
+    sheetMedId, sheetMedName, sheetCurrentStockDisplay, sheetStockColor,
+    outBg, outText, outBorder, inBg, inText, inBorder,
+    qtyStr, dateStr,
+    warnVisible, warnText, showPreview, previewText,
+    saveDisabled, saveBtnBg, saveBtnColor,
+    addName, addStockStr, addError, hasAddError: !!addError, addSaveDisabled: addName.trim()==='',
+    editMedicineOpen: editSheet==='medicine', editEntryOpen: editSheet==='entry',
+    editMedName, editNameStr, editStockStr, editMedSaveDisabled,
+    editError, hasEditError: !!editError,
+    editEntryMedName, editQtyStr, editDateStr, editEntrySaveDisabled,
+    editOutBg, editOutText, editOutBorder, editInBg, editInText, editInBorder,
+    editEntryWarnVisible, editEntryWarnText, editEntryPreview,
+    logRows, logEmpty,
+    toastVisible, toastMsg, toastBg, toastColor,
+  };
+}
+
+function headerHTML(vm){
+  return `
+  <div style="position:sticky;top:0;z-index:20;background:${vm.C.headerBg};color:${vm.C.headerText};padding:14px 16px 0">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
+        <span style="flex-shrink:0;display:flex">${LOGO_SVG}</span>
+        <span style="flex-shrink:0;font-size:22.5px;font-weight:700;letter-spacing:0.2px">${esc(vm.L.title)}</span>
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600;padding:3px 8px;border-radius:20px;background:rgba(255,255,255,0.14);color:${vm.C.headerMuted}">${esc(vm.L.subtitle)}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <button data-action="toggleLang" style="height:32px;padding:0 10px;border-radius:16px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);color:${vm.C.headerText};font-size:13.5px;font-weight:600;cursor:pointer">${esc(vm.langLabel)}</button>
+        <button data-action="toggleDark" aria-label="theme" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);color:${vm.C.headerText};display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0">
+          ${vm.dark ? ICON_MOON : ICON_SUN}
+        </button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;font-size:13.5px;color:${vm.C.headerMuted}">
+      <span>${esc(vm.todayDisplay)} · ${esc(vm.totalCountDisplay)} ${esc(vm.L.medCount)}</span>
+      <button data-action="exportClick" style="display:flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);color:${vm.C.headerText};font-size:13.5px;font-weight:600;cursor:pointer">
+        ${ICON_EXPORT}
+        ${esc(vm.L.export)}
+      </button>
+    </div>
+    <div style="display:flex;gap:4px;margin-top:14px">
+      <button data-action="setTabEntry" style="flex:1;height:40px;border:none;border-radius:10px 10px 0 0;font-size:14px;font-weight:700;cursor:pointer;background:${vm.entryTabBg};color:${vm.entryTabColor}">${esc(vm.L.tabEntry)}</button>
+      <button data-action="setTabDaybook" style="flex:1;height:40px;border:none;border-radius:10px 10px 0 0;font-size:14px;font-weight:700;cursor:pointer;background:${vm.daybookTabBg};color:${vm.daybookTabColor}">${esc(vm.L.tabDaybook)} (${esc(vm.daybookCountDisplay)})</button>
+      <button data-action="setTabLog" style="flex:1;height:40px;border:none;border-radius:10px 10px 0 0;font-size:14px;font-weight:700;cursor:pointer;background:${vm.logTabBg};color:${vm.logTabColor}">${esc(vm.L.tabLog)} (${esc(vm.logCountDisplay)})</button>
+    </div>
+  </div>`;
+}
+
+function entryTabHTML(vm){
+  return `
+  <div>
+    <div style="position:sticky;top:126px;z-index:15;background:${vm.C.pageBg};padding:12px 16px 8px">
+      <div style="position:relative">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:${vm.C.textMuted};pointer-events:none;display:flex">${ICON_SEARCH}</span>
+        <input data-field="query" value="${esc(vm.query)}" placeholder="${esc(vm.L.searchPlaceholder)}" style="width:100%;height:48px;padding:0 16px 0 40px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:16.5px;box-sizing:border-box" />
+      </div>
+    </div>
+
+    ${vm.hasRecent ? `
+    <div style="padding:16px 16px 0">
+      <div style="font-size:13px;font-weight:700;color:${vm.C.primary};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${esc(vm.L.recent)}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">
+        ${vm.recentRows.map(m=>`
+        <button data-action="openEntry" data-id="${esc(m.id)}" style="text-align:left;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:12px;border:1px solid ${vm.C.chipBorder};background:${vm.C.chipBg};cursor:pointer;min-height:40px">
+          <span style="font-size:14.5px;font-weight:600;color:${vm.C.text};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3">${esc(m.name)}</span>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:12.5px;color:${vm.C.textMuted}">${esc(m.usageDisplay)}</span>
+            <span style="font-size:13.5px;font-weight:700;padding:2px 8px;border-radius:20px;background:${m.badgeBg};color:${m.badgeText}">${esc(m.stockDisplay)}</span>
+          </div>
+        </button>`).join('')}
+      </div>
+    </div>` : ''}
+
+    <div style="padding:18px 16px 110px">
+      <div style="font-size:13px;font-weight:700;color:${vm.C.textMuted};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${esc(vm.listHeading)}</div>
+
+      ${vm.noResults ? `
+      <div style="text-align:center;padding:36px 16px;color:${vm.C.textMuted}">
+        <div style="font-size:15.5px;margin-bottom:16px">${esc(vm.noResultsText)}</div>
+        <button data-action="openAdd" style="height:46px;padding:0 18px;border-radius:10px;border:none;background:${vm.C.primary};color:#fff;font-size:15.5px;font-weight:700;cursor:pointer">${esc(vm.L.addNew)}</button>
+      </div>` : ''}
+
+      ${vm.hasMainRows ? `
+      <div style="display:flex;flex-direction:column;border-radius:12px;overflow:hidden;border:1px solid ${vm.C.border}">
+        ${vm.mainRows.map(m=>`
+        <button data-action="openEntry" data-id="${esc(m.id)}" style="display:flex;align-items:center;gap:10px;min-height:46px;padding:7px 14px;border:none;border-bottom:1px solid ${vm.C.border};background:${vm.C.surface};cursor:pointer;text-align:left;width:100%">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15.5px;font-weight:600;color:${vm.C.text};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3">${esc(m.name)}</div>
+            <div style="font-size:12.5px;color:${vm.C.textMuted};margin-top:2px">${esc(m.usageDisplay)}</div>
+          </div>
+          <span style="flex-shrink:0;font-size:14.5px;font-weight:700;padding:4px 10px;border-radius:20px;background:${m.badgeBg};color:${m.badgeText}">${esc(m.stockDisplay)}</span>
+        </button>`).join('')}
+      </div>` : ''}
+
+      ${vm.showToggleBtn ? `<button data-action="toggleShowAll" style="width:100%;height:48px;margin-top:12px;border-radius:10px;border:1px solid ${vm.C.border};background:${vm.C.surfaceAlt};color:${vm.C.text};font-size:15.5px;font-weight:700;cursor:pointer">${esc(vm.toggleBtnLabel)}</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function daybookTabHTML(vm){
+  return `
+  <div style="padding:16px 16px 110px">
+    <div style="font-size:13px;font-weight:700;color:${vm.C.textMuted};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${esc(vm.L.dayFilter)}</div>
+    <div style="display:flex;gap:8px;margin-bottom:18px">
+      <input type="date" data-field="dayFilter" value="${esc(vm.dayFilter)}" style="flex:1;height:46px;padding:0 12px;border-radius:10px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:15.5px;box-sizing:border-box" />
+      ${vm.hasDayFilter ? `<button data-action="clearDayFilter" style="height:46px;padding:0 14px;border-radius:10px;border:1px solid ${vm.C.border};background:${vm.C.surfaceAlt};color:${vm.C.text};font-size:14.5px;font-weight:700;cursor:pointer">${esc(vm.L.clear)}</button>` : ''}
+    </div>
+
+    ${vm.daybookEmpty ? `
+    <div style="text-align:center;padding:56px 16px;color:${vm.C.textMuted}">
+      <div style="font-size:15.5px;margin-bottom:16px;line-height:1.6">${esc(vm.L.emptyDaybook)}</div>
+      <button data-action="setTabEntry" style="height:46px;padding:0 18px;border-radius:10px;border:none;background:${vm.C.primary};color:#fff;font-size:15.5px;font-weight:700;cursor:pointer">${esc(vm.L.goEntry)}</button>
+    </div>` : ''}
+
+    ${vm.dayGroups.map(grp=>`
+    <div style="margin-bottom:18px">
+      <button data-action="toggleDayGroup" data-id="${esc(grp.date)}" style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:9px 12px;border-radius:10px;background:${vm.C.surfaceAlt};margin-bottom:6px;border:none;cursor:pointer;text-align:left">
+        <span style="display:flex;align-items:center;gap:6px;min-width:0">
+          <span style="display:flex;color:${vm.C.textMuted};transform:rotate(${grp.expanded ? '0' : '-90'}deg);transition:transform .15s;flex-shrink:0">${ICON_CHEVRON}</span>
+          <span style="font-size:14.5px;font-weight:700;color:${vm.C.text};white-space:nowrap">${esc(grp.dateDisplay)}</span>
+        </span>
+        <span style="font-size:13px;color:${vm.C.textMuted};flex-shrink:0">+${esc(grp.totalIn)} / −${esc(grp.totalOut)} · ${esc(grp.count)} ${esc(vm.L.entries)}</span>
+      </button>
+      ${grp.expanded ? `
+      <div style="display:flex;flex-direction:column;border-radius:12px;overflow:hidden;border:1px solid ${vm.C.border}">
+        ${grp.rows.map(e=>`
+        <div style="display:flex;align-items:center;gap:6px;min-height:44px;border-bottom:1px solid ${vm.C.border};background:${vm.C.surface}">
+          <button data-action="openDayDrill" data-id="${esc(e.drillId)}" style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:44px;padding:7px 14px;border:none;background:transparent;cursor:pointer;text-align:left">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:14.5px;font-weight:600;color:${vm.C.text};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.medName)}</div>
+              <div style="font-size:12px;color:${vm.C.textMuted};margin-top:1px">${esc(e.countDisplay)} · ${esc(vm.L.viewEntries)}</div>
+            </div>
+            <span style="font-size:14.5px;font-weight:700;color:${vm.C.text};flex-shrink:0">${esc(e.qtyDisplay)}</span>
+            <span style="font-size:12.5px;color:${e.psColor};min-width:60px;text-align:right;flex-shrink:0">PS ${esc(e.stockAfterDisplay)}</span>
+          </button>
+          ${e.isLast ? `<button data-action="undo" style="height:32px;padding:0 10px;margin-right:10px;border-radius:8px;border:1px solid ${vm.C.border};background:transparent;color:${vm.C.danger};font-size:12.5px;font-weight:700;cursor:pointer;flex-shrink:0">${esc(vm.L.undo)}</button>` : ''}
+        </div>`).join('')}
+      </div>` : ''}
+    </div>`).join('')}
+  </div>`;
+}
+
+function dayDrillHTML(vm){
+  return `
+  <div id="modalOverlay" style="position:fixed;inset:0;background:${vm.C.overlay};z-index:40;display:flex;align-items:flex-end;justify-content:center">
+    <div style="width:100%;max-width:540px;background:${vm.C.surface};border-radius:20px 20px 0 0;padding:10px 20px 24px;max-height:88vh;overflow-y:auto">
+      <div style="width:40px;height:4px;background:${vm.C.border};border-radius:2px;margin:0 auto 16px"></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px">
+        <div style="font-size:17.5px;font-weight:700;color:${vm.C.text};line-height:1.3">${esc(vm.dayDrillTitle)}</div>
+        <button data-action="closeDayDrill" style="width:36px;height:36px;border-radius:50%;border:none;background:${vm.C.surfaceAlt};color:${vm.C.text};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_CLOSE_MD}</button>
+      </div>
+      <div style="display:flex;flex-direction:column;border-radius:12px;overflow:hidden;border:1px solid ${vm.C.border}">
+        ${vm.dayDrillRows.map(r=>`
+        <div style="display:flex;align-items:center;gap:8px;min-height:42px;padding:7px 12px;border-bottom:1px solid ${vm.C.border};background:${vm.C.surface}">
+          <span style="font-size:12.5px;color:${vm.C.textMuted};width:28px;flex-shrink:0">${esc(r.serialDisplay)}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:600;color:${r.signColor}">${esc(r.typeLabel)} ${esc(r.qtyDisplay)}</div>
+            <div style="font-size:12px;color:${vm.C.textMuted}">${esc(r.timeDisplay)}</div>
+          </div>
+          <span style="font-size:12.5px;color:${vm.C.textMuted};flex-shrink:0">PS ${esc(r.stockAfterDisplay)}</span>
+          ${r.editable ? `
+          <button data-action="openEditEntry" data-id="${esc(r.id)}" aria-label="${esc(vm.L.editEntry)}" style="width:30px;height:30px;border-radius:8px;border:1px solid ${vm.C.border};background:${vm.C.surfaceAlt};color:${vm.C.text};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_EDIT}</button>
+          <button data-action="deleteEntry" data-id="${esc(r.id)}" aria-label="${esc(vm.L.deleteEntry)}" style="width:30px;height:30px;border-radius:8px;border:1px solid ${vm.C.border};background:${vm.C.surfaceAlt};color:${vm.C.danger};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_TRASH}</button>` : ''}
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function entrySheetHTML(vm){
+  return `
+  <div id="modalOverlay" style="position:fixed;inset:0;background:${vm.C.overlay};z-index:40;display:flex;align-items:flex-end;justify-content:center">
+    <div style="width:100%;max-width:540px;background:${vm.C.surface};border-radius:20px 20px 0 0;padding:10px 20px 24px;max-height:88vh;overflow-y:auto">
+      <div style="width:40px;height:4px;background:${vm.C.border};border-radius:2px;margin:0 auto 16px"></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px">
+        <div style="min-width:0">
+          <div style="font-size:18.5px;font-weight:700;color:${vm.C.text};line-height:1.3">${esc(vm.sheetMedName)}</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <span style="font-size:20.5px;font-weight:800;color:${vm.sheetStockColor}">${esc(vm.sheetCurrentStockDisplay)}</span>
+            <button data-action="openEditMedicine" data-id="${esc(vm.sheetMedId)}" aria-label="${esc(vm.L.editMedicine)}" style="width:22px;height:22px;border-radius:6px;border:1px solid ${vm.C.border};background:${vm.C.surfaceAlt};color:${vm.C.textMuted};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0">${ICON_EDIT}</button>
+            <button data-action="deleteMedicine" data-id="${esc(vm.sheetMedId)}" aria-label="${esc(vm.L.deleteMedicine)}" style="width:22px;height:22px;border-radius:6px;border:1px solid ${vm.C.border};background:${vm.C.surfaceAlt};color:${vm.C.danger};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0">${ICON_TRASH}</button>
+          </div>
+        </div>
+        <button data-action="closeSheet" style="width:36px;height:36px;border-radius:50%;border:none;background:${vm.C.surfaceAlt};color:${vm.C.text};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_CLOSE_MD}</button>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button data-action="setTypeOut" style="flex:1;height:52px;border-radius:12px;border:2px solid ${vm.outBorder};background:${vm.outBg};color:${vm.outText};font-size:16.5px;font-weight:700;cursor:pointer">${esc(vm.L.out)}</button>
+        <button data-action="setTypeIn" style="flex:1;height:52px;border-radius:12px;border:2px solid ${vm.inBorder};background:${vm.inBg};color:${vm.inText};font-size:16.5px;font-weight:700;cursor:pointer">${esc(vm.L.in)}</button>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.quantity)}</label>
+        <input inputmode="numeric" pattern="[0-9]*" data-field="qty" value="${esc(vm.qtyStr)}" placeholder="0" style="width:100%;height:52px;padding:0 16px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:21.5px;font-weight:700;box-sizing:border-box" />
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.date)}</label>
+        <input type="date" data-field="date" max="${esc(vm.todayISO)}" value="${esc(vm.dateStr)}" style="width:100%;height:48px;padding:0 14px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:15.5px;box-sizing:border-box" />
+      </div>
+
+      ${vm.warnVisible ? `
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:${vm.C.negativeBg};border:1px solid ${vm.C.danger};color:${vm.C.negativeText};font-size:14.5px;font-weight:600;margin-bottom:14px">
+        ${ICON_WARN}
+        ${esc(vm.warnText)}
+      </div>` : ''}
+      ${vm.showPreview ? `<div style="font-size:13.5px;color:${vm.C.textMuted};margin-bottom:14px">${esc(vm.previewText)}</div>` : ''}
+
+      <button data-action="saveEntry" ${vm.saveDisabled ? 'disabled' : ''} style="width:100%;height:54px;border-radius:14px;border:none;background:${vm.saveBtnBg};color:${vm.saveBtnColor};font-size:17.5px;font-weight:700;cursor:pointer">${esc(vm.L.save)}</button>
+    </div>
+  </div>`;
+}
+
+function addSheetHTML(vm){
+  return `
+  <div id="modalOverlay" style="position:fixed;inset:0;background:${vm.C.overlay};z-index:40;display:flex;align-items:flex-end;justify-content:center">
+    <div style="width:100%;max-width:540px;background:${vm.C.surface};border-radius:20px 20px 0 0;padding:10px 20px 24px;max-height:88vh;overflow-y:auto">
+      <div style="width:40px;height:4px;background:${vm.C.border};border-radius:2px;margin:0 auto 16px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <div style="font-size:18.5px;font-weight:700;color:${vm.C.text}">${esc(vm.L.addTitle)}</div>
+        <button data-action="closeSheet" style="width:36px;height:36px;border-radius:50%;border:none;background:${vm.C.surfaceAlt};color:${vm.C.text};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_CLOSE_MD}</button>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.nameLabel)}</label>
+        <input data-field="addName" value="${esc(vm.addName)}" style="width:100%;height:50px;padding:0 14px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:16.5px;box-sizing:border-box" />
+        ${vm.hasAddError ? `<div style="font-size:13.5px;color:${vm.C.danger};margin-top:6px;font-weight:600">${esc(vm.addError)}</div>` : ''}
+      </div>
+
+      <div style="margin-bottom:18px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.openingStock)}</label>
+        <input inputmode="numeric" pattern="[0-9]*" data-field="addStock" value="${esc(vm.addStockStr)}" placeholder="0" style="width:100%;height:50px;padding:0 14px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:16.5px;box-sizing:border-box" />
+      </div>
+
+      <button data-action="saveAddMedicine" ${vm.addSaveDisabled ? 'disabled' : ''} style="width:100%;height:54px;border-radius:14px;border:none;background:${vm.C.primary};color:${vm.C.selectedText};font-size:17.5px;font-weight:700;cursor:pointer">${esc(vm.L.addSave)}</button>
+    </div>
+  </div>`;
+}
+
+function editMedicineHTML(vm){
+  return `
+  <div id="modalOverlay" style="position:fixed;inset:0;background:${vm.C.overlay};z-index:50;display:flex;align-items:flex-end;justify-content:center">
+    <div style="width:100%;max-width:540px;background:${vm.C.surface};border-radius:20px 20px 0 0;padding:10px 20px 24px;max-height:88vh;overflow-y:auto">
+      <div style="width:40px;height:4px;background:${vm.C.border};border-radius:2px;margin:0 auto 16px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <div style="font-size:18.5px;font-weight:700;color:${vm.C.text}">${esc(vm.L.editMedicine)}</div>
+        <button data-action="closeEdit" style="width:36px;height:36px;border-radius:50%;border:none;background:${vm.C.surfaceAlt};color:${vm.C.text};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_CLOSE_MD}</button>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.nameLabel)}</label>
+        <input data-field="editName" value="${esc(vm.editNameStr)}" style="width:100%;height:50px;padding:0 14px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:16.5px;box-sizing:border-box" />
+        ${vm.hasEditError ? `<div style="font-size:13.5px;color:${vm.C.danger};margin-top:6px;font-weight:600">${esc(vm.editError)}</div>` : ''}
+      </div>
+
+      <div style="margin-bottom:18px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.currentStock)}</label>
+        <input inputmode="numeric" data-field="editStock" value="${esc(vm.editStockStr)}" placeholder="0" style="width:100%;height:50px;padding:0 14px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:16.5px;box-sizing:border-box" />
+      </div>
+
+      <button data-action="saveEditMedicine" ${vm.editMedSaveDisabled ? 'disabled' : ''} style="width:100%;height:54px;border-radius:14px;border:none;background:${vm.editMedSaveDisabled ? vm.C.border : vm.C.primary};color:${vm.editMedSaveDisabled ? vm.C.textMuted : vm.C.selectedText};font-size:17.5px;font-weight:700;cursor:pointer">${esc(vm.L.saveChanges)}</button>
+    </div>
+  </div>`;
+}
+
+function editEntryHTML(vm){
+  return `
+  <div id="modalOverlay" style="position:fixed;inset:0;background:${vm.C.overlay};z-index:50;display:flex;align-items:flex-end;justify-content:center">
+    <div style="width:100%;max-width:540px;background:${vm.C.surface};border-radius:20px 20px 0 0;padding:10px 20px 24px;max-height:88vh;overflow-y:auto">
+      <div style="width:40px;height:4px;background:${vm.C.border};border-radius:2px;margin:0 auto 16px"></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px">
+        <div style="font-size:18.5px;font-weight:700;color:${vm.C.text};line-height:1.3">${esc(vm.L.editEntry)}: ${esc(vm.editEntryMedName)}</div>
+        <button data-action="closeEdit" style="width:36px;height:36px;border-radius:50%;border:none;background:${vm.C.surfaceAlt};color:${vm.C.text};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_CLOSE_MD}</button>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button data-action="setEditTypeOut" style="flex:1;height:52px;border-radius:12px;border:2px solid ${vm.editOutBorder};background:${vm.editOutBg};color:${vm.editOutText};font-size:16.5px;font-weight:700;cursor:pointer">${esc(vm.L.out)}</button>
+        <button data-action="setEditTypeIn" style="flex:1;height:52px;border-radius:12px;border:2px solid ${vm.editInBorder};background:${vm.editInBg};color:${vm.editInText};font-size:16.5px;font-weight:700;cursor:pointer">${esc(vm.L.in)}</button>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.quantity)}</label>
+        <input inputmode="numeric" pattern="[0-9]*" data-field="editQty" value="${esc(vm.editQtyStr)}" placeholder="0" style="width:100%;height:52px;padding:0 16px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:21.5px;font-weight:700;box-sizing:border-box" />
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:13.5px;font-weight:700;color:${vm.C.textMuted};display:block;margin-bottom:6px">${esc(vm.L.date)}</label>
+        <input type="date" data-field="editDate" max="${esc(vm.todayISO)}" value="${esc(vm.editDateStr)}" style="width:100%;height:48px;padding:0 14px;border-radius:12px;border:1px solid ${vm.C.inputBorder};background:${vm.C.inputBg};color:${vm.C.text};font-size:15.5px;box-sizing:border-box" />
+      </div>
+
+      ${vm.editEntryWarnVisible ? `
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:${vm.C.negativeBg};border:1px solid ${vm.C.danger};color:${vm.C.negativeText};font-size:14.5px;font-weight:600;margin-bottom:14px">
+        ${ICON_WARN}
+        ${esc(vm.editEntryWarnText)}
+      </div>` : ''}
+      ${vm.editEntryPreview ? `<div style="font-size:13.5px;color:${vm.C.textMuted};margin-bottom:14px">${esc(vm.editEntryPreview)}</div>` : ''}
+
+      <button data-action="saveEditEntry" ${vm.editEntrySaveDisabled ? 'disabled' : ''} style="width:100%;height:54px;border-radius:14px;border:none;background:${vm.editEntrySaveDisabled ? vm.C.border : vm.C.primary};color:${vm.editEntrySaveDisabled ? vm.C.textMuted : vm.C.selectedText};font-size:17.5px;font-weight:700;cursor:pointer">${esc(vm.L.saveChanges)}</button>
+    </div>
+  </div>`;
+}
+
+function logTabHTML(vm){
+  return `
+  <div style="padding:16px 16px 110px">
+    <div style="font-size:13px;font-weight:700;color:${vm.C.textMuted};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${esc(vm.L.activityLogHeading)}</div>
+    ${vm.logEmpty ? `
+    <div style="text-align:center;padding:56px 16px;color:${vm.C.textMuted}">
+      <div style="font-size:15.5px;line-height:1.6">${esc(vm.L.emptyLog)}</div>
+    </div>` : `
+    <div style="display:flex;flex-direction:column;border-radius:12px;overflow:hidden;border:1px solid ${vm.C.border}">
+      ${vm.logRows.map(r=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid ${vm.C.border};background:${vm.C.surface}">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+          <div style="font-size:14.5px;font-weight:600;color:${vm.C.text}">${esc(r.summary)}</div>
+          <div style="font-size:12.5px;color:${vm.C.textMuted}">${esc(r.whenDisplay)}</div>
+        </div>
+        <button data-action="deleteLogEntry" data-id="${esc(r.id)}" aria-label="${esc(vm.L.deleteEntry)}" style="width:30px;height:30px;border-radius:8px;border:1px solid ${vm.C.border};background:${vm.C.surfaceAlt};color:${vm.C.danger};cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">${ICON_TRASH}</button>
+      </div>`).join('')}
+    </div>`}
+  </div>`;
+}
+
+function toastHTML(vm){
+  return `
+  <div style="position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:60;max-width:92vw;display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;background:${vm.toastBg};color:${vm.toastColor};font-size:14.5px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.25)">
+    ${ICON_CHECK}
+    ${esc(vm.toastMsg)}
+  </div>`;
+}
+
+function buildAppHTML(){
+  if(state.isLoading){
+    return `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:${LIGHT.pageBg}">
+      <div style="text-align:center">
+        <div style="font-size:29.5px;font-weight:700;color:#134E36;animation:pmcPulse 1.1s ease-in-out infinite">PMC</div>
+        <div style="font-size:13.5px;color:#6B776E;margin-top:6px;letter-spacing:0.4px">Medicine Stock Register</div>
+      </div>
+    </div>`;
+  }
+  const vm = computeVM();
+  document.documentElement.lang = vm.lang;
+  document.body.style.background = vm.C.pageBg;
+  let modal = '';
+  if(vm.editMedicineOpen) modal = editMedicineHTML(vm);
+  else if(vm.editEntryOpen) modal = editEntryHTML(vm);
+  else if(vm.sheetEntryOpen) modal = entrySheetHTML(vm);
+  else if(vm.sheetAddOpen) modal = addSheetHTML(vm);
+  else if(vm.dayDrillOpen) modal = dayDrillHTML(vm);
+  return `
+  <div style="min-height:100vh;background:${vm.C.pageBg}">
+    <div style="width:100%;min-height:100vh;background:${vm.C.pageBg};position:relative">
+      ${headerHTML(vm)}
+      <div style="max-width:800px;margin:0 auto;position:relative">
+        ${vm.isEntryTab ? entryTabHTML(vm) : ''}
+        ${vm.isDaybookTab ? daybookTabHTML(vm) : ''}
+        ${vm.isLogTab ? logTabHTML(vm) : ''}
+        ${modal}
+        ${vm.toastVisible ? toastHTML(vm) : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function render(){
+  const active = document.activeElement;
+  let restore = null;
+  if(active && app.contains(active) && active.dataset){
+    if(active.dataset.field){
+      restore = { type:'field', field: active.dataset.field, start: active.selectionStart, end: active.selectionEnd };
+    } else if(active.dataset.action){
+      restore = { type:'action', action: active.dataset.action, id: active.dataset.id };
+    }
+  }
+
+  app.innerHTML = buildAppHTML();
+
+  if(pendingFocus){
+    const sel = pendingFocus;
+    pendingFocus = null;
+    const el = app.querySelector(sel);
+    if(el){ el.focus(); return; }
+  }
+  if(restore){
+    const sel = restore.type==='field' ? `[data-field="${restore.field}"]` : focusSelectorFor({dataset:{action:restore.action, id:restore.id}});
+    const el = app.querySelector(sel);
+    if(el){
+      el.focus();
+      if(restore.type==='field' && typeof el.setSelectionRange === 'function' && restore.start != null){
+        try{ el.setSelectionRange(restore.start, restore.end); }catch(err){}
+      }
+    }
+  }
+}
+
+// Builds the "Sheet1" register grid: one row per medicine, an Opening Balance column,
+// then one In/Out/Present-Stock column block per date that had any activity, ending
+// with a Month/Closing Balance column — matching the user's existing khata-register format.
+function buildRegisterSheet(entries){
+  const medicines = state.medicines.slice().sort((a,b)=>a.name.localeCompare(b.name));
+
+  const dates = Array.from(new Set(entries.map(e=>e.date))).sort();
+
+  const perMedDateTotals = {}; // medId -> date -> {in,out}
+  const openingByMed = {}; // medId -> prevStock of that medicine's earliest entry
+  entries.forEach(e=>{
+    if(!perMedDateTotals[e.medId]) perMedDateTotals[e.medId] = {};
+    const d = perMedDateTotals[e.medId][e.date] || {in:0,out:0};
+    if(e.type==='in') d.in += e.qty; else d.out += e.qty;
+    perMedDateTotals[e.medId][e.date] = d;
+    if(!(e.medId in openingByMed)) openingByMed[e.medId] = e.prevStock;
+  });
+
+  const headerRow1 = ['Medicine Name','','Opening Balance'];
+  const headerRow2 = ['','',''];
+  dates.forEach((d,i)=>{
+    headerRow1.push(d,'','');
+    headerRow2.push('In','Out', i===0 ? 'Present Stock' : 'PS');
+  });
+  headerRow1.push('Month Closing Balance');
+  headerRow2.push('');
+
+  const rows = [headerRow1, headerRow2];
+  medicines.forEach(m=>{
+    const opening = (m.id in openingByMed) ? openingByMed[m.id] : m.stock;
+    const row = [m.name, '', opening];
+    let running = opening;
+    dates.forEach(d=>{
+      const t = perMedDateTotals[m.id] && perMedDateTotals[m.id][d];
+      if(t){
+        running = running + t.in - t.out;
+        row.push(t.in || '', t.out || '', running);
+      } else {
+        row.push('', '', running);
+      }
+    });
+    row.push(running);
+    rows.push(row);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  const merges = [
+    {s:{r:0,c:0}, e:{r:1,c:0}}, // Medicine Name
+    {s:{r:0,c:2}, e:{r:1,c:2}}, // Opening Balance
+  ];
+  let col = 3;
+  dates.forEach(()=>{ merges.push({s:{r:0,c:col}, e:{r:0,c:col+2}}); col += 3; });
+  merges.push({s:{r:0,c:col}, e:{r:1,c:col}}); // Month Closing Balance
+  ws['!merges'] = merges;
+
+  ws['!cols'] = [{wch:28},{wch:6},{wch:14}]
+    .concat(dates.flatMap(()=>[{wch:8},{wch:8},{wch:10}]))
+    .concat([{wch:16}]);
+
+  dates.forEach((d,i)=>{
+    const addr = XLSX.utils.encode_cell({r:0, c:3+i*3});
+    ws[addr] = { t:'d', v:new Date(d+'T00:00:00'), z:'d-mmm-yy' };
+  });
+
+  return ws;
+}
+
+function doExport(){
+  if(typeof XLSX === 'undefined'){
+    setToast(TRANSLATIONS[state.lang].exportError, true);
+    render();
+    return;
+  }
+  const filtered = !!state.dayFilter;
+  const exportEntries = filtered ? state.entries.filter(e=>e.date===state.dayFilter) : state.entries;
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, buildRegisterSheet(exportEntries), 'Sheet1');
+
+  const entriesSorted = exportEntries.slice().sort((a,b)=> a.date===b.date ? 0 : (a.date<b.date?-1:1));
+  const entrySheet = XLSX.utils.json_to_sheet(entriesSorted.map(e=>({
+    Date: e.date, Medicine: e.medName, Type: e.type==='in'?'In':'Out', Quantity: e.qty, 'Stock After': e.stockAfter,
+    Time: e.createdAt ? fmtTime(e.createdAt, 'en') : '',
+  })));
+  XLSX.utils.book_append_sheet(wb, entrySheet, 'Entries');
+
+  const filenameSuffix = filtered ? `${state.dayFilter}_filtered` : todayISO();
+  XLSX.writeFile(wb, `PMC_Stock_Register_${filenameSuffix}.xlsx`);
+  setToast(TRANSLATIONS[state.lang].exportDone, false);
+  render();
+}
+
+const ACTIONS = {
+  toggleLang(){ state.lang = state.lang==='en' ? 'bn' : 'en'; persist(); render(); },
+  toggleDark(){ state.dark = !state.dark; persist(); render(); },
+  setTabEntry(){ state.tab = 'entry'; render(); },
+  setTabDaybook(){ state.tab = 'daybook'; render(); },
+  setTabLog(){ state.tab = 'log'; render(); },
+  exportClick(){ doExport(); },
+  openAdd(){
+    focusStack.push(focusSelectorFor(document.activeElement));
+    state.sheet = 'add'; state.addName = state.query; state.addStockStr = ''; state.addError = '';
+    pendingFocus = '[data-field="addName"]';
+    render();
+  },
+  openEntry(id){
+    focusStack.push(focusSelectorFor(document.activeElement));
+    state.sheet = 'entry'; state.sheetMedId = id; state.entryType = 'out'; state.qtyStr = ''; state.dateStr = todayISO(); state.addError = '';
+    pendingFocus = '[data-field="qty"]';
+    render();
+  },
+  closeSheet(){
+    state.sheet = null; state.sheetMedId = null; state.addError = '';
+    pendingFocus = focusStack.pop() || '[data-field="query"]';
+    render();
+  },
+  setTypeOut(){ state.entryType = 'out'; render(); },
+  setTypeIn(){ state.entryType = 'in'; render(); },
+  toggleShowAll(){ state.showAllList = !state.showAllList; render(); },
+  clearDayFilter(){ state.dayFilter = ''; render(); },
+  toggleDayGroup(date){
+    const vm = computeVM();
+    const grp = vm.dayGroups.find(g=>g.date===date);
+    const currentlyExpanded = grp ? grp.expanded : false;
+    state.dateOverrides = {...state.dateOverrides, [date]: !currentlyExpanded};
+    render();
+  },
+  closeModal(){
+    if(state.editSheet){ ACTIONS.closeEdit(); return; }
+    if(state.sheet){ ACTIONS.closeSheet(); return; }
+    if(state.dayDrill){ ACTIONS.closeDayDrill(); return; }
+  },
+  openDayDrill(compound){
+    focusStack.push(focusSelectorFor(document.activeElement));
+    const [date, medId] = compound.split('__');
+    state.dayDrill = { date, medId };
+    pendingFocus = '[data-action="closeDayDrill"]';
+    render();
+  },
+  closeDayDrill(){
+    state.dayDrill = null;
+    pendingFocus = focusStack.pop() || '[data-field="dayFilter"]';
+    render();
+  },
+  openEditMedicine(id){
+    const med = state.medicines.find(m=>m.id===id);
+    if(!med) return;
+    focusStack.push(focusSelectorFor(document.activeElement));
+    state.editSheet = 'medicine'; state.editMedId = id;
+    state.editNameStr = med.name; state.editStockStr = String(med.stock); state.editError = '';
+    pendingFocus = '[data-field="editName"]';
+    render();
+  },
+  deleteMedicine(id){
+    const med = state.medicines.find(m=>m.id===id);
+    if(!med) return;
+    const lang = state.lang;
+    const L = TRANSLATIONS[lang];
+    if(!window.confirm(L.confirmDeleteMedicine(med.name))) return;
+    state.medicines = state.medicines.filter(m=>m.id!==id);
+    const removedEntryIds = new Set(state.entries.filter(e=>e.medId===id).map(e=>e.id));
+    state.entries = state.entries.filter(e=>e.medId!==id);
+    state.recentMedIds = state.recentMedIds.filter(x=>x!==id);
+    if(state.lastEntryId && removedEntryIds.has(state.lastEntryId)){
+      state.lastEntryId = state.entries.length ? state.entries[state.entries.length-1].id : null;
+    }
+    logActivity(L.logDeleteMedicine(med.name));
+    setToast(L.medicineDeletedToast, false);
+    state.sheet = null; state.sheetMedId = null; state.editSheet = null; state.editMedId = null;
+    pendingFocus = '[data-field="query"]';
+    focusStack.length = 0;
+    persist();
+    render();
+  },
+  deleteLogEntry(id){
+    if(!window.confirm(TRANSLATIONS[state.lang].confirmDeleteLog)) return;
+    state.activityLog = state.activityLog.filter(a=>a.id!==id);
+    persist();
+    render();
+  },
+  openEditEntry(id){
+    const e = state.entries.find(x=>x.id===id);
+    if(!e || !isEditableEntry(e)) return;
+    focusStack.push(focusSelectorFor(document.activeElement));
+    state.editSheet = 'entry'; state.editEntryId = id;
+    state.editQtyStr = String(e.qty); state.editTypeStr = e.type; state.editDateStr = e.date; state.editError = '';
+    pendingFocus = '[data-field="editQty"]';
+    render();
+  },
+  deleteEntry(id){
+    const e = state.entries.find(x=>x.id===id);
+    if(!e || !isEditableEntry(e)) return;
+    const lang = state.lang;
+    const L = TRANSLATIONS[lang];
+    if(!window.confirm(L.confirmDeleteEntry)) return;
+    const typeLabel = e.type==='in' ? L.in : L.out;
+    const medId = e.medId, date = e.date;
+    state.entries = state.entries.filter(x=>x.id!==id);
+    recalcMedicineChain(medId);
+    if(state.lastEntryId===id){
+      state.lastEntryId = state.entries.length ? state.entries[state.entries.length-1].id : null;
+    }
+    logActivity(L.logDeleteEntry(typeLabel, e.medName, fmtNum(e.qty,lang)));
+    setToast(L.deletedToast, false);
+    persist();
+    const remaining = state.entries.some(x=>x.date===date && x.medId===medId);
+    if(!remaining && state.dayDrill && state.dayDrill.date===date && state.dayDrill.medId===medId){
+      ACTIONS.closeDayDrill();
+    } else {
+      pendingFocus = '[data-action="closeDayDrill"]';
+      render();
+    }
+  },
+  closeEdit(){
+    state.editSheet = null; state.editMedId = null; state.editEntryId = null; state.editError = '';
+    pendingFocus = focusStack.pop() || (state.dayDrill ? '[data-action="closeDayDrill"]' : '[data-field="query"]');
+    render();
+  },
+  setEditTypeOut(){ state.editTypeStr = 'out'; render(); },
+  setEditTypeIn(){ state.editTypeStr = 'in'; render(); },
+  undo(){
+    const { entries, lastEntryId, medicines, lang } = state;
+    const idx = entries.findIndex(e=>e.id===lastEntryId);
+    if(idx<0) return;
+    const entry = entries[idx];
+    const medIdx = medicines.findIndex(m=>m.id===entry.medId);
+    if(medIdx>=0){
+      const m = medicines[medIdx];
+      medicines[medIdx] = {...m, stock:entry.prevStock, usage:Math.max(0,m.usage-1)};
+    }
+    state.entries = entries.filter(e=>e.id!==lastEntryId);
+    state.lastEntryId = state.entries.length ? state.entries[state.entries.length-1].id : null;
+    const L = TRANSLATIONS[lang];
+    logActivity(L.logUndo(entry.type==='in'?L.in:L.out, entry.medName, fmtNum(entry.qty,lang)));
+    setToast(L.undoneToast, false);
+    persist();
+    render();
+  },
+  saveEntry(){
+    const { medicines, sheetMedId, entryType, qtyStr, dateStr, lang } = state;
+    const qty = parseInt(qtyStr,10)||0;
+    if(qty<=0) return;
+    if(dateStr > todayISO()) return;
+    const idx = medicines.findIndex(m=>m.id===sheetMedId);
+    if(idx<0) return;
+    const med = medicines[idx];
+    const newStock = entryType==='in' ? med.stock+qty : med.stock-qty;
+    if(newStock<0) return;
+    const entry = { id:'e'+Date.now()+'_'+Math.random().toString(36).slice(2,7), date:dateStr, medId:med.id, medName:med.name, type:entryType, qty, stockAfter:newStock, prevStock:med.stock, createdAt:new Date().toISOString() };
+    medicines[idx] = {...med, stock:newStock, usage:med.usage+1};
+    state.entries.push(entry);
+    state.recentMedIds = [med.id, ...state.recentMedIds.filter(id=>id!==med.id)].slice(0,20);
+    state.lastEntryId = entry.id;
+    state.sheet = null; state.sheetMedId = null;
+    state.query = ''; state.showAllList = false;
+    const L = TRANSLATIONS[lang];
+    const typeLabel = entryType==='in' ? L.in : L.out;
+    logActivity(L.logEntry(typeLabel, med.name, fmtNum(qty,lang), fmtNum(newStock,lang)));
+    setToast(L.savedToast(med.name, typeLabel, fmtNum(qty,lang), fmtNum(newStock,lang)), newStock<0);
+    focusStack.pop(); // discard the opening trigger — after a save, always return to the search field, cleared, for the next entry
+    pendingFocus = '[data-field="query"]';
+    persist();
+    render();
+  },
+  saveAddMedicine(){
+    const { addName, addStockStr, medicines, lang } = state;
+    const name = addName.trim();
+    if(!name) return;
+    const nn = normalize(name);
+    if(medicines.some(m=>normalize(m.name)===nn)){
+      state.addError = TRANSLATIONS[lang].dupError;
+      render();
+      return;
+    }
+    const stock = parseInt(addStockStr,10)||0;
+    const newMed = { id:'m'+Date.now()+'_'+Math.random().toString(36).slice(2,7), name, stock, usage:0 };
+    state.medicines.push(newMed);
+    const L = TRANSLATIONS[lang];
+    logActivity(L.logAdded(name, fmtNum(stock,lang)));
+    state.query = ''; state.sheet = 'entry'; state.sheetMedId = newMed.id; state.entryType = 'out'; state.qtyStr = ''; state.dateStr = todayISO(); state.addError = '';
+    setToast(L.addedToast(name), false);
+    pendingFocus = '[data-field="qty"]';
+    persist();
+    render();
+  },
+  saveEditMedicine(){
+    const { editMedId, editNameStr, editStockStr, medicines, lang } = state;
+    const name = editNameStr.trim();
+    if(!name) return;
+    const nn = normalize(name);
+    if(medicines.some(m=>m.id!==editMedId && normalize(m.name)===nn)){
+      state.editError = TRANSLATIONS[lang].dupError;
+      render();
+      return;
+    }
+    const idx = medicines.findIndex(m=>m.id===editMedId);
+    if(idx<0) return;
+    const med = medicines[idx];
+    const oldName = med.name, oldStock = med.stock;
+    const parsedStock = parseInt(editStockStr,10);
+    const finalStock = isNaN(parsedStock) ? med.stock : parsedStock;
+    medicines[idx] = {...med, name, stock: finalStock};
+    // Shift this medicine's whole entry chain by the same delta, so a later entry edit
+    // (which recalculates from the chain's original baseline) doesn't silently discard this correction.
+    const delta = finalStock - oldStock;
+    if(delta !== 0){
+      state.entries.filter(e=>e.medId===editMedId).forEach(e=>{ e.prevStock += delta; e.stockAfter += delta; });
+    }
+    const L = TRANSLATIONS[lang];
+    logActivity(oldName===name
+      ? L.logMedEditSame(name, fmtNum(oldStock,lang), fmtNum(finalStock,lang))
+      : L.logMedEditRenamed(oldName, name, fmtNum(oldStock,lang), fmtNum(finalStock,lang)));
+    state.editSheet = null; state.editMedId = null; state.editError = '';
+    setToast(L.editedToast, false);
+    pendingFocus = focusStack.pop() || '[data-field="qty"]';
+    persist();
+    render();
+  },
+  saveEditEntry(){
+    const { editEntryId, editQtyStr, editTypeStr, editDateStr, entries, lang } = state;
+    const qty = parseInt(editQtyStr,10)||0;
+    if(qty<=0) return;
+    if(editDateStr > todayISO()) return;
+    const idx = entries.findIndex(e=>e.id===editEntryId);
+    if(idx<0) return;
+    const e = entries[idx];
+    if(!isEditableEntry(e)) return;
+    const sim = simulateChain(e.medId, editEntryId, qty, editTypeStr);
+    if(sim.minStock<0) return;
+    const L = TRANSLATIONS[lang];
+    const oldType = e.type==='in' ? L.in : L.out, newType = editTypeStr==='in' ? L.in : L.out;
+    const oldQtyDisp = fmtNum(e.qty,lang), newQtyDisp = fmtNum(qty,lang);
+    entries[idx] = {...e, qty, type:editTypeStr, date:editDateStr};
+    recalcMedicineChain(e.medId);
+    logActivity(L.logEntryEdit(e.medName, oldType, oldQtyDisp, newType, newQtyDisp));
+    state.editSheet = null; state.editEntryId = null; state.editError = '';
+    setToast(L.editedToast, false);
+    pendingFocus = focusStack.pop() || (state.dayDrill ? '[data-action="closeDayDrill"]' : '[data-field="dayFilter"]');
+    persist();
+    render();
+  },
+};
+
+const FIELD_HANDLERS = {
+  query(v){ state.query = v; state.showAllList = false; render(); },
+  qty(v){ state.qtyStr = v.replace(/[^0-9]/g,''); render(); },
+  date(v){ state.dateStr = v; render(); },
+  addName(v){ state.addName = v; state.addError = ''; render(); },
+  addStock(v){ state.addStockStr = v.replace(/[^0-9]/g,''); render(); },
+  dayFilter(v){ state.dayFilter = v; render(); },
+  editName(v){ state.editNameStr = v; state.editError = ''; render(); },
+  editStock(v){
+    let s = v.replace(/[^0-9-]/g,'');
+    s = s[0]==='-' ? '-'+s.slice(1).replace(/-/g,'') : s.replace(/-/g,'');
+    state.editStockStr = s; render();
+  },
+  editQty(v){ state.editQtyStr = v.replace(/[^0-9]/g,''); render(); },
+  editDate(v){ state.editDateStr = v; render(); },
+};
+
+function onClick(e){
+  if(e.target && e.target.id === 'modalOverlay'){ ACTIONS.closeModal(); return; }
+  const btn = e.target.closest('[data-action]');
+  if(!btn || btn.disabled) return;
+  const fn = ACTIONS[btn.dataset.action];
+  if(fn) fn(btn.dataset.id);
+}
+function onFieldChange(e){
+  const el = e.target.closest('[data-field]');
+  if(!el) return;
+  const fn = FIELD_HANDLERS[el.dataset.field];
+  if(fn) fn(el.value);
+}
+
+function onKeyDown(e){
+  if(e.key === 'Escape' && isModalOpen()){
+    e.preventDefault();
+    ACTIONS.closeModal();
+    return;
+  }
+  if(e.key === 'Enter' && e.target && e.target.dataset){
+    const field = e.target.dataset.field;
+    if(field === 'qty'){
+      const vm = computeVM();
+      if(!vm.saveDisabled){ e.preventDefault(); ACTIONS.saveEntry(); }
+      return;
+    }
+    if(field === 'addName'){
+      const vm = computeVM();
+      if(!vm.addSaveDisabled){ e.preventDefault(); ACTIONS.saveAddMedicine(); }
+      return;
+    }
+    if(field === 'editName'){
+      const vm = computeVM();
+      if(!vm.editMedSaveDisabled){ e.preventDefault(); ACTIONS.saveEditMedicine(); }
+      return;
+    }
+    if(field === 'editQty'){
+      const vm = computeVM();
+      if(!vm.editEntrySaveDisabled){ e.preventDefault(); ACTIONS.saveEditEntry(); }
+      return;
+    }
+  }
+  if(e.key === 'Tab' && isModalOpen()){
+    const panel = app.querySelector('#modalOverlay > div');
+    if(!panel) return;
+    const focusables = Array.from(panel.querySelectorAll('button:not([disabled]), input'));
+    if(focusables.length === 0) return;
+    const first = focusables[0], last = focusables[focusables.length-1];
+    if(e.shiftKey && document.activeElement === first){
+      e.preventDefault(); last.focus();
+    } else if(!e.shiftKey && document.activeElement === last){
+      e.preventDefault(); first.focus();
+    }
+  }
+}
+
+app.addEventListener('click', onClick);
+app.addEventListener('input', onFieldChange);
+app.addEventListener('change', onFieldChange);
+app.addEventListener('keydown', onKeyDown);
+
+render();
+syncFromServer();
+setTimeout(()=>{ state.isLoading = false; render(); }, 500);
+
+</script>
+</body>
+</html>
